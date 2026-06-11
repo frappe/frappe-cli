@@ -1,6 +1,6 @@
 # fr — Frappe CLI
 
-A `gh`-style command-line client for Frappe sites, designed for humans and AI
+A command-line client for Frappe sites, designed for humans and AI
 agents equally. Pure API client (Frappe v15+, API v2); no bench/server-side
 coupling.
 
@@ -69,7 +69,7 @@ The internal-sites use case implies two first-class requirements:
   `fr doctype show <name>` — fields, types, link targets, required, child
   tables, permissions. This is what lets an agent self-orient on an
   unfamiliar site.
-- **`fr api`**: gh-style raw access — `fr api method/<path> -F key=value`,
+- **`fr api`**: raw access — `fr api method/<path> -F key=value`,
   arbitrary REST paths. Sugar-free power; doc verbs are sugar over the same
   client.
 - **Files**: full support in v1 — upload (with `--doctype/--name` attach,

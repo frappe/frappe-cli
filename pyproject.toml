@@ -1,0 +1,35 @@
+[project]
+name = "frappe-cli"
+version = "0.1.0"
+description = "fr — a command-line client for Frappe sites, built for humans and AI agents."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Ankush Menat", email = "ankush@frappe.io" }]
+requires-python = ">=3.10"
+keywords = ["frappe", "erpnext", "cli", "api"]
+dependencies = [
+    "typer>=0.12",
+    "httpx>=0.27",
+    "rich>=13.0",
+    "keyring>=24.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/ankush/frappe-cli"
+
+[project.scripts]
+fr = "frappe_cli.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "respx>=0.21"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/frappe_cli"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
