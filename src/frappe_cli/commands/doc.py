@@ -1,4 +1,4 @@
-"""``fr doc`` — generic DocType verbs."""
+"""``frappe doc`` — generic DocType verbs."""
 
 from __future__ import annotations
 

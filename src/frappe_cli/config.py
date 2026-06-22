@@ -2,7 +2,7 @@
 
 Resolution order for the active site/credentials:
 
-1. Environment variables (``FR_SITE``, ``FR_API_KEY``, ``FR_API_SECRET``) always
+1. Environment variables (``FRAPPE_SITE``, ``FRAPPE_API_KEY``, ``FRAPPE_API_SECRET``) always
    win. This is the headless / agent path and never touches the keyring.
 2. A stored profile (selected with ``-s/--site`` or the configured default).
    The site URL lives in a plaintext config file; the ``key:secret`` token lives
@@ -43,7 +43,7 @@ def config_dir() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
         os.path.expanduser("~"), ".config"
     )
-    return Path(base) / "fr"
+    return Path(base) / "frappe"
 
 
 def config_path() -> Path:
@@ -85,7 +85,7 @@ def _keyring():
     except Exception as e:  # pragma: no cover - import guard
         raise ConfigError(
             "The 'keyring' package is unavailable. Use environment variables "
-            "(FR_SITE, FR_API_KEY, FR_API_SECRET) instead."
+            "(FRAPPE_SITE, FRAPPE_API_KEY, FRAPPE_API_SECRET) instead."
         ) from e
 
 
@@ -97,7 +97,7 @@ def _store_secret(profile: str, token: str) -> None:
         raise ConfigError(
             "Could not store credentials in the OS keyring "
             f"({e}). Frappe CLI does not write secrets to disk. "
-            "On headless machines use FR_SITE / FR_API_KEY / FR_API_SECRET."
+            "On headless machines use FRAPPE_SITE / FRAPPE_API_KEY / FRAPPE_API_SECRET."
         ) from e
 
 
@@ -108,7 +108,7 @@ def _read_secret(profile: str) -> str | None:
     except Exception as e:
         raise ConfigError(
             f"Could not read credentials from the OS keyring ({e}). "
-            "Use FR_SITE / FR_API_KEY / FR_API_SECRET instead."
+            "Use FRAPPE_SITE / FRAPPE_API_KEY / FRAPPE_API_SECRET instead."
         ) from e
 
 
@@ -169,14 +169,14 @@ def _normalize_site(site: str) -> str:
 def resolve(profile: str | None = None) -> Credentials:
     """Resolve credentials per the documented precedence."""
 
-    env_site = os.environ.get("FR_SITE")
+    env_site = os.environ.get("FRAPPE_SITE")
     # Env wins, but only when a profile wasn't explicitly requested.
     if profile is None and env_site:
-        key = os.environ.get("FR_API_KEY")
-        secret = os.environ.get("FR_API_SECRET")
+        key = os.environ.get("FRAPPE_API_KEY")
+        secret = os.environ.get("FRAPPE_API_SECRET")
         if not key or not secret:
             raise ConfigError(
-                "FR_SITE is set but FR_API_KEY / FR_API_SECRET are missing."
+                "FRAPPE_SITE is set but FRAPPE_API_KEY / FRAPPE_API_SECRET are missing."
             )
         return Credentials(_normalize_site(env_site), key, secret, source="env")
 
@@ -184,19 +184,19 @@ def resolve(profile: str | None = None) -> Credentials:
     name = profile or default
     if not name:
         raise ConfigError(
-            "No site configured. Run 'fr auth login <url>' or set FR_SITE, "
-            "FR_API_KEY and FR_API_SECRET."
+            "No site configured. Run 'frappe auth login <url>' or set FRAPPE_SITE, "
+            "FRAPPE_API_KEY and FRAPPE_API_SECRET."
         )
     if name not in profiles:
         raise ConfigError(
-            f"No such profile: {name}. Run 'fr auth list' to see profiles."
+            f"No such profile: {name}. Run 'frappe auth list' to see profiles."
         )
 
     token = _read_secret(name)
     if not token or ":" not in token:
         raise ConfigError(
             f"No stored credentials for profile '{name}'. "
-            f"Run 'fr auth login' again for this site."
+            f"Run 'frappe auth login' again for this site."
         )
     api_key, api_secret = token.split(":", 1)
     return Credentials(

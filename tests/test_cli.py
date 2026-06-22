@@ -29,9 +29,9 @@ def test_hoist_globals(argv, expected):
 
 @pytest.fixture
 def env(monkeypatch):
-    monkeypatch.setenv("FR_SITE", BASE)
-    monkeypatch.setenv("FR_API_KEY", "k")
-    monkeypatch.setenv("FR_API_SECRET", "s")
+    monkeypatch.setenv("FRAPPE_SITE", BASE)
+    monkeypatch.setenv("FRAPPE_API_KEY", "k")
+    monkeypatch.setenv("FRAPPE_API_SECRET", "s")
 
 
 @respx.mock

@@ -1,4 +1,4 @@
-"""``fr file`` — upload and download files."""
+"""``frappe file`` — upload and download files."""
 
 from __future__ import annotations
 

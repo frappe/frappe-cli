@@ -1,4 +1,4 @@
-"""``fr doctype`` — introspection / meta suite for agent self-orientation."""
+"""``frappe doctype`` — introspection / meta suite for agent self-orientation."""
 
 from __future__ import annotations
 

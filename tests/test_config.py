@@ -4,9 +4,9 @@ from frappe_cli.config import ConfigError
 
 
 def test_env_wins(fake_config, monkeypatch):
-    monkeypatch.setenv("FR_SITE", "erp.example.com")
-    monkeypatch.setenv("FR_API_KEY", "k")
-    monkeypatch.setenv("FR_API_SECRET", "s")
+    monkeypatch.setenv("FRAPPE_SITE", "erp.example.com")
+    monkeypatch.setenv("FRAPPE_API_KEY", "k")
+    monkeypatch.setenv("FRAPPE_API_SECRET", "s")
     creds = fake_config.resolve()
     assert creds.source == "env"
     assert creds.site == "https://erp.example.com"  # normalized
@@ -14,8 +14,8 @@ def test_env_wins(fake_config, monkeypatch):
 
 
 def test_env_incomplete_errors(fake_config, monkeypatch):
-    monkeypatch.setenv("FR_SITE", "erp.example.com")
-    monkeypatch.delenv("FR_API_KEY", raising=False)
+    monkeypatch.setenv("FRAPPE_SITE", "erp.example.com")
+    monkeypatch.delenv("FRAPPE_API_KEY", raising=False)
     with pytest.raises(ConfigError):
         fake_config.resolve()
 
@@ -33,9 +33,9 @@ def test_profile_roundtrip(fake_config):
 
 def test_explicit_profile_overrides_env(fake_config, monkeypatch):
     fake_config.add_profile("acme", "http://acme.test", "k1", "s1")
-    monkeypatch.setenv("FR_SITE", "http://other.test")
-    monkeypatch.setenv("FR_API_KEY", "ek")
-    monkeypatch.setenv("FR_API_SECRET", "es")
+    monkeypatch.setenv("FRAPPE_SITE", "http://other.test")
+    monkeypatch.setenv("FRAPPE_API_KEY", "ek")
+    monkeypatch.setenv("FRAPPE_API_SECRET", "es")
     # No profile arg -> env wins.
     assert fake_config.resolve().source == "env"
     # Explicit profile -> profile wins.

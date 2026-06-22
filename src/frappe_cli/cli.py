@@ -1,4 +1,4 @@
-"""fr — top-level Typer app and global options."""
+"""frappe — top-level Typer app and global options."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ from .errors import FrappeError, UsageError
 from .output import Ctx, fail
 
 app = typer.Typer(
-    name="fr",
-    help="fr — a command-line client for Frappe sites.",
+    name="frappe",
+    help="frappe — a command-line client for Frappe sites.",
     no_args_is_help=True,
     add_completion=True,
     rich_markup_mode="rich",
@@ -28,13 +28,13 @@ app.add_typer(doc.app, name="doc")
 app.add_typer(doctype.app, name="doctype")
 app.add_typer(file.app, name="file")
 app.add_typer(report.app, name="report")
-# `fr api <path>` — single command, mounted directly.
+# `frappe api <path>` — single command, mounted directly.
 app.command(name="api", help=api_cmd.api.__doc__)(api_cmd.api)
 
 
 def _version_callback(value: bool):
     if value:
-        typer.echo(f"fr {__version__}")
+        typer.echo(f"frappe {__version__}")
         raise typer.Exit()
 
 
@@ -60,8 +60,8 @@ def _root(
 
 # Global flags that must reach the top-level callback. We hoist them to the
 # front of argv so they work in gh-style trailing position too, e.g.
-#   fr doc list "Sales Invoice" --json
-# is rewritten to `fr --json doc list "Sales Invoice"`.
+#   frappe doc list "Sales Invoice" --json
+# is rewritten to `frappe --json doc list "Sales Invoice"`.
 _VALUELESS_GLOBALS = {"--json", "--yes", "-y"}
 _VALUED_GLOBALS = {"-s", "--site"}
 

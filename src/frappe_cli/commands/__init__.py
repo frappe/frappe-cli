@@ -1,1 +1,1 @@
-"""fr subcommands."""
+"""frappe subcommands."""

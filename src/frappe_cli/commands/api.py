@@ -1,8 +1,8 @@
-"""``fr api`` — raw access to the v2 API.
+"""``frappe api`` — raw access to the v2 API.
 
-    fr api method/frappe.client.get_count -F doctype=User
-    fr api method/gameplan.api.get_unread_count
-    fr api document/ToDo --method GET
+    frappe api method/frappe.client.get_count -F doctype=User
+    frappe api method/gameplan.api.get_unread_count
+    frappe api document/ToDo --method GET
 
 Doc verbs are sugar over this same client; this is the sugar-free escape hatch
 for whitelisted methods and arbitrary REST paths.
