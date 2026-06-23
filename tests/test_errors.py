@@ -1,4 +1,4 @@
-from frappe_cli.errors import extract_message, strip_html
+from frappe_cli.errors import error_hint, extract_message, strip_html
 
 
 def test_strip_html():
@@ -40,3 +40,25 @@ def test_server_messages():
 def test_plain_fallback():
     assert extract_message({}, 500) == "HTTP 500"
     assert extract_message("boom", 500) == "boom"
+
+
+def test_error_hint_known_shapes():
+    def hint_for(msg: str) -> str:
+        h = error_hint(msg)
+        assert h is not None
+        return h
+
+    assert "frappe doctype list" in hint_for("ToDo X not found")
+    assert "frappe doctype show" in hint_for("[ToDo]: description is mandatory")
+    assert "frappe auth whoami" in hint_for("Permission denied (403).")
+    assert "frappe auth login" in hint_for(
+        "Authentication failed (401). Check the API key/secret."
+    )
+    assert "reachable" in hint_for("Could not reach http://x: timeout")
+
+
+def test_error_hint_quiet_on_unknown():
+    assert error_hint(None) is None
+    assert error_hint("") is None
+    assert error_hint("stdin is not valid JSON") is None
+    assert error_hint("--name requires --doctype.") is None

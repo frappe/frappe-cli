@@ -6,6 +6,9 @@ REST API v2); no bench or server-side coupling.
 
 > Status: pre-1.0, experimental. MIT licensed.
 
+New here (or an agent)? Run `frappe guide` for a one-screen primer covering auth,
+the core verbs, filtering and the raw-API escape hatch.
+
 ```sh
 frappe auth login https://erp.example.com         # prompts for key/secret → keyring
 frappe -s raven doc list "Raven Channel" --json    # -s/--site selects a profile
@@ -80,6 +83,7 @@ frappe auth whoami
 | `frappe report run <name>` | Run a report with the same filter UX as `list`. |
 | `frappe file upload\|download` | Files, with `--doctype/--name` attach and `--private`. |
 | `frappe api <path>` | Raw v2 access: `frappe api method/<path> -F key=value`. |
+| `frappe guide` | Print a short, self-contained usage primer (no site/auth needed). |
 
 ### Filtering
 

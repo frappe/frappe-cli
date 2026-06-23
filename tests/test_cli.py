@@ -123,6 +123,29 @@ def test_conflict_message(env):
     assert "modified since you read it" in result.stderr
 
 
+def test_guide_runs_without_auth():
+    # No env / profile configured: guide must still work (no client, no network).
+    result = runner.invoke(app, ["guide"])
+    assert result.exit_code == 0
+    assert "AUTHENTICATION" in result.stdout
+    assert "frappe doctype show" in result.stdout
+    assert "frappe api" in result.stdout
+
+
+@respx.mock
+def test_error_includes_hint(env):
+    respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
+        return_value=httpx.Response(
+            404, json={"errors": [{"type": "DoesNotExistError", "message": "ToDo X not found"}]}
+        )
+    )
+    result = runner.invoke(app, ["--json", "doc", "get", "ToDo", "X"])
+    assert result.exit_code == 1
+    assert "not found" in result.stderr
+    assert "tip:" in result.stderr
+    assert "frappe doctype list" in result.stderr
+
+
 @respx.mock
 def test_api_method_get(env):
     respx.get(f"{BASE}/api/v2/method/frappe.client.get_count").mock(

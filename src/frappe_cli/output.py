@@ -45,8 +45,18 @@ def print_json(data: Any) -> None:
 
 
 def fail(message: str, code: int = 1) -> "typer.Exit":
-    """Print an error to stderr and return an Exit to raise."""
+    """Print an error to stderr and return an Exit to raise.
+
+    When the message matches a known failure shape, append a one-line tip
+    pointing at the command that can resolve it. Hints go to stderr, so they
+    never pollute JSON on stdout.
+    """
+    from .errors import error_hint
+
     err_console.print(f"[red]error:[/red] {message}")
+    hint = error_hint(message)
+    if hint:
+        err_console.print(f"[dim]tip:[/dim] {hint}")
     return typer.Exit(code)
 
 

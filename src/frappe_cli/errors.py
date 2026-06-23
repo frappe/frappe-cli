@@ -13,6 +13,73 @@ import re
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
+# Ordered (pattern, hint) pairs. The first whose pattern is found in a
+# (lower-cased) error message wins, so its tip is appended to the error. The
+# message is the only signal we have at the print site, but it already carries
+# the semantics we need ("not found", "permission", "mandatory", …). Hints stay
+# generic — they point at the command that resolves the class of error rather
+# than guessing the exact DocType/field.
+_HINTS: tuple[tuple[str, str], ...] = (
+    (
+        "authentication failed",
+        "Set FRAPPE_SITE/FRAPPE_API_KEY/FRAPPE_API_SECRET, or run "
+        "'frappe auth login <url>'. Check the active profile with 'frappe auth whoami'.",
+    ),
+    (
+        "permission",
+        "Confirm who you're authenticated as with 'frappe auth whoami'.",
+    ),
+    (
+        "not permitted",
+        "Confirm who you're authenticated as with 'frappe auth whoami'.",
+    ),
+    (
+        "could not reach",
+        "Check the site URL and that it's reachable; 'frappe auth whoami' shows the resolved site.",
+    ),
+    (
+        "does not exist",
+        "List records with 'frappe doc list <DocType>', or verify the DocType "
+        "with 'frappe doctype list'.",
+    ),
+    (
+        "not found",
+        "List records with 'frappe doc list <DocType>', or verify the DocType "
+        "with 'frappe doctype list'.",
+    ),
+    (
+        "mandatory",
+        "See which fields are required with 'frappe doctype show <DocType>'.",
+    ),
+    (
+        "value missing",
+        "See which fields are required with 'frappe doctype show <DocType>'.",
+    ),
+    (
+        "unknown column",
+        "List valid fieldnames with 'frappe doctype show <DocType>'.",
+    ),
+    (
+        "invalid field",
+        "List valid fieldnames with 'frappe doctype show <DocType>'.",
+    ),
+)
+
+
+def error_hint(message: str | None) -> str | None:
+    """Return a one-line tip pointing at a command that can help, or None.
+
+    Conservative by design: only well-known error shapes get a hint, so usage
+    errors and unrecognised messages stay quiet.
+    """
+    if not message:
+        return None
+    low = message.lower()
+    for pattern, hint in _HINTS:
+        if pattern in low:
+            return hint
+    return None
+
 
 class FrappeError(Exception):
     """A server-side error, already reduced to a clean message."""
