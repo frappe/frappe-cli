@@ -128,8 +128,8 @@ def test_guide_runs_without_auth():
     result = runner.invoke(app, ["guide"])
     assert result.exit_code == 0
     assert "AUTHENTICATION" in result.stdout
-    assert "frappe doctype show" in result.stdout
-    assert "frappe api" in result.stdout
+    assert "frappe-cli doctype show" in result.stdout
+    assert "frappe-cli api" in result.stdout
 
 
 @respx.mock
@@ -143,7 +143,7 @@ def test_error_includes_hint(env):
     assert result.exit_code == 1
     assert "not found" in result.stderr
     assert "tip:" in result.stderr
-    assert "frappe doctype list" in result.stderr
+    assert "frappe-cli doctype list" in result.stderr
 
 
 @respx.mock

@@ -1,4 +1,4 @@
-# frappe — Frappe CLI
+# frappe-cli — Frappe CLI
 
 A command-line client for Frappe sites, designed for humans and AI
 agents equally. Pure API client (Frappe v15+, API v2); no bench/server-side
@@ -21,7 +21,7 @@ The internal-sites use case implies two first-class requirements:
   helpdesk/gameplan/raven/erp must be one short flag or a default.
 - **The `api` escape hatch will carry real weight** — Helpdesk/Gameplan/Raven
   expose most functionality via whitelisted methods, not doc CRUD. The meta
-  suite + `frappe api` is how agents reach those.
+  suite + `frappe-cli api` is how agents reach those.
 
 ## Decisions
 
@@ -42,7 +42,7 @@ The internal-sites use case implies two first-class requirements:
 
 ### Document semantics
 
-- **Verbs**: `frappe doc list|get|create|update|delete` on any DocType.
+- **Verbs**: `frappe-cli doc list|get|create|update|delete` on any DocType.
 - **Lifecycle**: `submit`, `cancel`, `amend` are first-class verbs. Raw
   `--set docstatus=N` stays possible but undocumented.
 - **Input**: `--set field=value` for flat scalars; full JSON via stdin or
@@ -65,18 +65,18 @@ The internal-sites use case implies two first-class requirements:
 
 ### Beyond documents
 
-- **Introspection (full meta suite)**: `frappe doctype list`,
-  `frappe doctype show <name>` — fields, types, link targets, required, child
+- **Introspection (full meta suite)**: `frappe-cli doctype list`,
+  `frappe-cli doctype show <name>` — fields, types, link targets, required, child
   tables, permissions. This is what lets an agent self-orient on an
   unfamiliar site.
-- **`frappe api`**: raw access — `frappe api method/<path> -F key=value`,
+- **`frappe-cli api`**: raw access — `frappe-cli api method/<path> -F key=value`,
   arbitrary REST paths. Sugar-free power; doc verbs are sugar over the same
   client.
 - **Files**: full support in v1 — upload (with `--doctype/--name` attach,
   `--private`) and download.
-- **Reports**: first-class — `frappe report run "Accounts Receivable" -f company=X`,
+- **Reports**: first-class — `frappe-cli report run "Accounts Receivable" -f company=X`,
   same filter UX and output modes as `list`.
-- **Background jobs**: no commands; document that `frappe doc list "RQ Job"`
+- **Background jobs**: no commands; document that `frappe-cli doc list "RQ Job"`
   works (virtual DocType in v15).
 - **MCP**: no. The CLI is the interface; keep the internal client library
   clean enough that an MCP wrapper stays possible later.
@@ -100,31 +100,31 @@ The internal-sites use case implies two first-class requirements:
 - **Keyring-only storage**: headless environments must use env vars; document
   this prominently in agent setup docs.
 - **Workflow actions** ("approve stuff"): approval via Frappe Workflow is an
-  action, not a field write. v1 answer is `frappe api` against
-  `frappe.model.workflow.apply_workflow`; a first-class `frappe doc action`
+  action, not a field write. v1 answer is `frappe-cli api` against
+  `frappe.model.workflow.apply_workflow`; a first-class `frappe-cli doc action`
   verb is a likely v1.x addition given the ERP-approvals use case.
 - **Unread/summary flows** (Gameplan/Raven): exercise these early via
-  `frappe api` to find out what generic surface is missing.
+  `frappe-cli api` to find out what generic surface is missing.
 - Verify `frappe` name availability on PyPI before anything ships.
 
 ## Sketch
 
 ```sh
-frappe auth login https://erp.example.com        # prompts for key/secret → keyring
-frappe auth list                                  # profiles, default marked
-frappe -s raven doc list "Raven Channel" --json   # -s/--site selects profile
+frappe-cli auth login https://erp.example.com        # prompts for key/secret → keyring
+frappe-cli auth list                                  # profiles, default marked
+frappe-cli -s raven doc list "Raven Channel" --json   # -s/--site selects profile
 
-frappe doc list "Sales Invoice" -f status=Overdue -f 'grand_total>1000' \
+frappe-cli doc list "Sales Invoice" -f status=Overdue -f 'grand_total>1000' \
   --fields name,customer,grand_total --all --json
-frappe doc get "Sales Invoice" SINV-0001
-frappe doc create ToDo --set description="Follow up" --set priority=High
-cat invoice.json | frappe doc create "Sales Invoice"
-frappe doc submit "Sales Invoice" SINV-0001
-frappe doc delete ToDo abc123 --yes
+frappe-cli doc get "Sales Invoice" SINV-0001
+frappe-cli doc create ToDo --set description="Follow up" --set priority=High
+cat invoice.json | frappe-cli doc create "Sales Invoice"
+frappe-cli doc submit "Sales Invoice" SINV-0001
+frappe-cli doc delete ToDo abc123 --yes
 
-frappe doctype show "Sales Invoice" --json        # agent self-orientation
-frappe report run "Accounts Receivable" -f company="Frappe" --json
-frappe file upload ./contract.pdf --doctype "Sales Invoice" --name SINV-0001 --private
-frappe api method/frappe.client.get_count -F doctype=User
-frappe api method/gameplan.api.get_unread_count   # escape hatch in anger
+frappe-cli doctype show "Sales Invoice" --json        # agent self-orientation
+frappe-cli report run "Accounts Receivable" -f company="Frappe" --json
+frappe-cli file upload ./contract.pdf --doctype "Sales Invoice" --name SINV-0001 --private
+frappe-cli api method/frappe.client.get_count -F doctype=User
+frappe-cli api method/gameplan.api.get_unread_count   # escape hatch in anger
 ```

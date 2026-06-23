@@ -18,7 +18,9 @@ dependencies = [
 Homepage = "https://github.com/ankush/frappe-cli"
 
 [project.scripts]
-frappe = "frappe_cli.cli:main"
+frappe-cli = "frappe_cli.cli:main"
+# `fr` was the original entry point; keep it as an alias for backwards compatibility.
+fr = "frappe_cli.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "respx>=0.21"]

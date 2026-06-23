@@ -1,4 +1,4 @@
-"""``frappe auth`` — manage site profiles and credentials."""
+"""``frappe-cli auth`` — manage site profiles and credentials."""
 
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ def list_profiles(ctx: typer.Context):
     emit_list(c, rows, ["profile", "site", "default"])
     if not rows and not c.json:
         err_console.print(
-            "[dim]No profiles. Run 'frappe auth login <url>' or use FRAPPE_SITE env vars.[/dim]"
+            "[dim]No profiles. Run 'frappe-cli auth login <url>' or use FRAPPE_SITE env vars.[/dim]"
         )
 
 

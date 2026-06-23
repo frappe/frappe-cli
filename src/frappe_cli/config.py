@@ -184,19 +184,19 @@ def resolve(profile: str | None = None) -> Credentials:
     name = profile or default
     if not name:
         raise ConfigError(
-            "No site configured. Run 'frappe auth login <url>' or set FRAPPE_SITE, "
+            "No site configured. Run 'frappe-cli auth login <url>' or set FRAPPE_SITE, "
             "FRAPPE_API_KEY and FRAPPE_API_SECRET."
         )
     if name not in profiles:
         raise ConfigError(
-            f"No such profile: {name}. Run 'frappe auth list' to see profiles."
+            f"No such profile: {name}. Run 'frappe-cli auth list' to see profiles."
         )
 
     token = _read_secret(name)
     if not token or ":" not in token:
         raise ConfigError(
             f"No stored credentials for profile '{name}'. "
-            f"Run 'frappe auth login' again for this site."
+            f"Run 'frappe-cli auth login' again for this site."
         )
     api_key, api_secret = token.split(":", 1)
     return Credentials(

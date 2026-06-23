@@ -1,4 +1,4 @@
-"""``frappe report`` — run query/script reports with the same filter UX as list."""
+"""``frappe-cli report`` — run query/script reports with the same filter UX as list."""
 
 from __future__ import annotations
 

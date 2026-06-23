@@ -1,1 +1,1 @@
-"""frappe subcommands."""
+"""frappe-cli subcommands."""

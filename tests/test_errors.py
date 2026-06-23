@@ -48,10 +48,10 @@ def test_error_hint_known_shapes():
         assert h is not None
         return h
 
-    assert "frappe doctype list" in hint_for("ToDo X not found")
-    assert "frappe doctype show" in hint_for("[ToDo]: description is mandatory")
-    assert "frappe auth whoami" in hint_for("Permission denied (403).")
-    assert "frappe auth login" in hint_for(
+    assert "frappe-cli doctype list" in hint_for("ToDo X not found")
+    assert "frappe-cli doctype show" in hint_for("[ToDo]: description is mandatory")
+    assert "frappe-cli auth whoami" in hint_for("Permission denied (403).")
+    assert "frappe-cli auth login" in hint_for(
         "Authentication failed (401). Check the API key/secret."
     )
     assert "reachable" in hint_for("Could not reach http://x: timeout")
