@@ -77,7 +77,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config \
-            libmariadb-dev mariadb-client
 
       - name: Install Bench
         run: |
@@ -98,6 +97,7 @@ jobs:
           bench set-config -g redis_cache    "redis://localhost:6379"
           bench set-config -g redis_queue    "redis://localhost:6379"
           bench set-config -g redis_socketio "redis://localhost:6379"
+          bench set-config -g use_mysqlclient 0
 
           # DB root creds + admin password via global config — the path Frappe's
           # own CI uses, rather than the (renamed) new-site CLI flags.
