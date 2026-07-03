@@ -90,6 +90,7 @@ jobs:
           pip install frappe-bench
 
           bench init --skip-assets --no-backups \
+            --skip-redis-config-generation \
             --frappe-branch develop --python "$(which python)" ~/frappe-bench
           cd ~/frappe-bench
 
