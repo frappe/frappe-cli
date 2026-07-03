@@ -27,3 +27,18 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
+        with:
+          python-version: "3.14"
+
+      - name: Run pre-commit
+        env:
+          SKIP: no-commit-to-branch
+        run: uvx pre-commit run --all-files --show-diff-on-failure
