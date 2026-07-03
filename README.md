@@ -31,7 +31,7 @@ frappe-cli api method/gameplan.api.get_unread_count    # the escape hatch, in an
 ## Install
 
 ```sh
-uv tool install frappe-cli      # or: pipx install frappe-cli
+uv tool install git+https://github.com/frappe/frappe-cli      # or: pip install git+https://github.com/frappe/frappe-cli
 ```
 
 ## Authentication
