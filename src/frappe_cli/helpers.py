@@ -38,14 +38,14 @@ def parse_filter(token: str) -> list:
         idx = lowered.find(word_op)
         if idx != -1:
             field = stripped[:idx].strip()
-            value = stripped[idx + len(word_op):].strip()
+            value = stripped[idx + len(word_op) :].strip()
             return [field, word_op.strip(), _coerce(value)]
 
     for op in _OPERATORS:
         idx = stripped.find(op)
         if idx > 0:
             field = stripped[:idx].strip()
-            value = stripped[idx + len(op):].strip()
+            value = stripped[idx + len(op) :].strip()
             return [field, op, _coerce(value)]
 
     raise UsageError(

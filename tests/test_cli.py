@@ -20,7 +20,10 @@ runner = CliRunner()
         # tokens after `--` are left alone
         (["api", "p", "--", "--json"], ["api", "p", "--", "--json"]),
         # substrings are not hoisted
-        (["doc", "list", "X", "--filters-json", "[]"], ["doc", "list", "X", "--filters-json", "[]"]),
+        (
+            ["doc", "list", "X", "--filters-json", "[]"],
+            ["doc", "list", "X", "--filters-json", "[]"],
+        ),
     ],
 )
 def test_hoist_globals(argv, expected):
@@ -53,14 +56,20 @@ def test_doc_list_meta_driven_fields(env):
                 "data": {
                     "title_field": "description",
                     "fields": [
-                        {"fieldname": "status", "fieldtype": "Select", "in_list_view": 1}
+                        {
+                            "fieldname": "status",
+                            "fieldtype": "Select",
+                            "in_list_view": 1,
+                        }
                     ],
                 }
             },
         )
     )
     list_route = respx.get(f"{BASE}/api/v2/document/ToDo").mock(
-        return_value=httpx.Response(200, json={"data": [{"name": "a"}], "has_next_page": False})
+        return_value=httpx.Response(
+            200, json={"data": [{"name": "a"}], "has_next_page": False}
+        )
     )
     result = runner.invoke(app, ["--json", "doc", "list", "ToDo"])
     assert result.exit_code == 0
@@ -79,12 +88,16 @@ def test_delete_requires_yes_noninteractive(env):
 @respx.mock
 def test_update_threads_modified(env):
     respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
-        return_value=httpx.Response(200, json={"data": {"name": "X", "modified": "2026-01-01 00:00:00"}})
+        return_value=httpx.Response(
+            200, json={"data": {"name": "X", "modified": "2026-01-01 00:00:00"}}
+        )
     )
     patch_route = respx.patch(f"{BASE}/api/v2/document/ToDo/X/").mock(
         return_value=httpx.Response(200, json={"data": {"name": "X"}})
     )
-    result = runner.invoke(app, ["--json", "doc", "update", "ToDo", "X", "--set", "status=Closed"])
+    result = runner.invoke(
+        app, ["--json", "doc", "update", "ToDo", "X", "--set", "status=Closed"]
+    )
     assert result.exit_code == 0
     import json
 
@@ -99,7 +112,8 @@ def test_update_force_skips_modified(env):
         return_value=httpx.Response(200, json={"data": {"name": "X"}})
     )
     result = runner.invoke(
-        app, ["--json", "doc", "update", "ToDo", "X", "--set", "status=Closed", "--force"]
+        app,
+        ["--json", "doc", "update", "ToDo", "X", "--set", "status=Closed", "--force"],
     )
     assert result.exit_code == 0
     import json
@@ -111,14 +125,23 @@ def test_update_force_skips_modified(env):
 @respx.mock
 def test_conflict_message(env):
     respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
-        return_value=httpx.Response(200, json={"data": {"name": "X", "modified": "2026-01-01 00:00:00"}})
+        return_value=httpx.Response(
+            200, json={"data": {"name": "X", "modified": "2026-01-01 00:00:00"}}
+        )
     )
     respx.patch(f"{BASE}/api/v2/document/ToDo/X/").mock(
         return_value=httpx.Response(
-            409, json={"errors": [{"message": "Document has been modified after you have opened it"}]}
+            409,
+            json={
+                "errors": [
+                    {"message": "Document has been modified after you have opened it"}
+                ]
+            },
         )
     )
-    result = runner.invoke(app, ["--json", "doc", "update", "ToDo", "X", "--set", "status=Closed"])
+    result = runner.invoke(
+        app, ["--json", "doc", "update", "ToDo", "X", "--set", "status=Closed"]
+    )
     assert result.exit_code == 1
     assert "modified since you read it" in result.stderr
 
@@ -136,7 +159,10 @@ def test_guide_runs_without_auth():
 def test_error_includes_hint(env):
     respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
         return_value=httpx.Response(
-            404, json={"errors": [{"type": "DoesNotExistError", "message": "ToDo X not found"}]}
+            404,
+            json={
+                "errors": [{"type": "DoesNotExistError", "message": "ToDo X not found"}]
+            },
         )
     )
     result = runner.invoke(app, ["--json", "doc", "get", "ToDo", "X"])
@@ -151,6 +177,8 @@ def test_api_method_get(env):
     respx.get(f"{BASE}/api/v2/method/frappe.client.get_count").mock(
         return_value=httpx.Response(200, json={"data": 5})
     )
-    result = runner.invoke(app, ["api", "method/frappe.client.get_count", "-F", "doctype=User"])
+    result = runner.invoke(
+        app, ["api", "method/frappe.client.get_count", "-F", "doctype=User"]
+    )
     assert result.exit_code == 0
     assert result.stdout.strip() == "5"

@@ -1,0 +1,39 @@
+exclude: '.git'
+default_stages: [pre-commit]
+default_install_hook_types: [pre-commit, commit-msg]
+fail_fast: false
+
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ".*json$|.*txt$|.*csv|.*md|.*svg"
+      - id: no-commit-to-branch
+        args: ['--branch', 'develop']
+      - id: check-merge-conflict
+      - id: check-ast
+      - id: check-json
+      - id: check-toml
+      - id: check-yaml
+      - id: debug-statements
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.10
+    hooks:
+      - id: ruff
+        name: "Run ruff import sorter"
+        args: ["--select=I", "--fix"]
+
+      - id: ruff
+        name: "Run ruff linter"
+
+      - id: ruff-format
+        name: "Run ruff formatter"
+
+
+ci:
+    autoupdate_schedule: weekly
+    skip: []
+    submodules: false

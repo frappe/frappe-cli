@@ -71,7 +71,12 @@ def test_call_method_get():
     respx.get(f"{BASE}/api/v2/method/frappe.client.get_count").mock(
         return_value=httpx.Response(200, json={"data": 42})
     )
-    assert client().call_method("frappe.client.get_count", params={"doctype": "User"}, http_method="GET") == 42
+    assert (
+        client().call_method(
+            "frappe.client.get_count", params={"doctype": "User"}, http_method="GET"
+        )
+        == 42
+    )
 
 
 @respx.mock

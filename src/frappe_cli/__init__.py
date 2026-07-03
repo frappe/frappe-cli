@@ -1,3 +1,8 @@
 """frappe-cli — Frappe CLI."""
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("frappe-cli")
+except PackageNotFoundError:
+    __version__ = "0.0.0+unknown"

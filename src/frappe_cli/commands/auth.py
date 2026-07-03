@@ -26,11 +26,15 @@ def login(
     name: Optional[str] = typer.Option(
         None, "--name", help="Profile name (default: the site host)."
     ),
-    api_key: Optional[str] = typer.Option(None, "--api-key", help="API key (else prompted)."),
+    api_key: Optional[str] = typer.Option(
+        None, "--api-key", help="API key (else prompted)."
+    ),
     api_secret: Optional[str] = typer.Option(
         None, "--api-secret", help="API secret (else prompted)."
     ),
-    set_default: bool = typer.Option(True, "--default/--no-default", help="Make this the default."),
+    set_default: bool = typer.Option(
+        True, "--default/--no-default", help="Make this the default."
+    ),
 ):
     """Store credentials for a site in the OS keyring."""
     profile = name or _default_profile_name(config._normalize_site(site))
@@ -45,14 +49,14 @@ def login(
     # Verify before storing so we never persist dead credentials.
     try:
         with FrappeClient(norm_site, f"{api_key}:{api_secret}") as client:
-            who = client.call_method(
-                "frappe.auth.get_logged_user", http_method="GET"
-            )
+            who = client.call_method("frappe.auth.get_logged_user", http_method="GET")
     except FrappeError as e:
         raise fail(f"Could not authenticate against {norm_site}: {e.message}")
 
     try:
-        config.add_profile(profile, norm_site, api_key, api_secret, make_default=set_default)
+        config.add_profile(
+            profile, norm_site, api_key, api_secret, make_default=set_default
+        )
     except config.ConfigError as e:
         raise fail(str(e), 2)
 

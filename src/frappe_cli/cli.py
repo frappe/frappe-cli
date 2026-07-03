@@ -54,7 +54,11 @@ def _root(
         False, "--yes", "-y", help="Assume yes for confirmation prompts."
     ),
     version: bool = typer.Option(
-        False, "--version", callback=_version_callback, is_eager=True, help="Show version."
+        False,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show version.",
     ),
 ):
     """Global options apply to every subcommand."""

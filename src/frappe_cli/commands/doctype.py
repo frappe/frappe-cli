@@ -10,13 +10,17 @@ from ..errors import FrappeError
 from ..output import emit_list, emit_record, fail, get_ctx, print_json
 from ..session import get_client
 
-app = typer.Typer(no_args_is_help=True, help="Inspect DocTypes: fields, links, permissions.")
+app = typer.Typer(
+    no_args_is_help=True, help="Inspect DocTypes: fields, links, permissions."
+)
 
 
 @app.command("list")
 def list_doctypes(
     ctx: typer.Context,
-    filter_module: Optional[str] = typer.Option(None, "--module", help="Filter by module."),
+    filter_module: Optional[str] = typer.Option(
+        None, "--module", help="Filter by module."
+    ),
     custom: bool = typer.Option(False, "--custom", help="Only custom DocTypes."),
     limit: int = typer.Option(500, "--limit", help="Max rows."),
 ):
@@ -72,7 +76,9 @@ def show_doctype(
 
     all_fields = meta.get("fields", [])
     layout = {"Section Break", "Column Break", "Tab Break", "HTML", "Heading"}
-    fields = [_summarize_field(f) for f in all_fields if f.get("fieldtype") not in layout]
+    fields = [
+        _summarize_field(f) for f in all_fields if f.get("fieldtype") not in layout
+    ]
     links = [
         {"fieldname": f.get("fieldname"), "target": f.get("options")}
         for f in all_fields
@@ -114,7 +120,11 @@ def show_doctype(
         },
         title=f"DocType {name}",
     )
-    emit_list(c, fields, ["fieldname", "label", "fieldtype", "options", "reqd", "in_list_view"])
+    emit_list(
+        c,
+        fields,
+        ["fieldname", "label", "fieldtype", "options", "reqd", "in_list_view"],
+    )
     if child_tables:
         from ..output import err_console
 
