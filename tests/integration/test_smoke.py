@@ -36,7 +36,13 @@ DOCTYPE = "ToDo"
 
 
 def run(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
-    """Invoke the installed CLI as a subprocess and capture its output."""
+    """Invoke the installed CLI as a subprocess and capture its output.
+
+    Output is captured (not a TTY), so the CLI auto-selects JSON — no ``--json``
+    flag is needed. Note ``--json``/``--yes``/``--site`` are *global* options and
+    must precede the command group when passed explicitly (e.g. ``--yes doc
+    delete ...``).
+    """
     return subprocess.run(
         [sys.executable, "-m", "frappe_cli", *args],
         input=stdin,
@@ -64,18 +70,18 @@ def test_guide_runs_without_network():
 
 
 def test_whoami_authenticates():
-    who = run_json("auth", "whoami", "--json")
+    who = run_json("auth", "whoami")
     assert who["user"] == "Administrator"
     assert who["source"] == "env"
 
 
 def test_doctype_list_includes_todo():
-    rows = run_json("doctype", "list", "--json")
+    rows = run_json("doctype", "list")
     assert DOCTYPE in {r["name"] for r in rows}
 
 
 def test_doctype_show_exposes_fields():
-    meta = run_json("doctype", "show", DOCTYPE, "--json")
+    meta = run_json("doctype", "show", DOCTYPE)
     assert meta["name"] == DOCTYPE
     fieldnames = {f["fieldname"] for f in meta["fields"]}
     assert {"description", "status"} <= fieldnames
@@ -83,7 +89,7 @@ def test_doctype_show_exposes_fields():
 
 def test_api_escape_hatch():
     # The raw escape hatch that agents lean on for whitelisted methods.
-    user = run_json("api", "method/frappe.auth.get_logged_user", "--json")
+    user = run_json("api", "method/frappe.auth.get_logged_user")
     assert user == "Administrator"
 
 
@@ -91,43 +97,40 @@ def test_doc_crud_lifecycle():
     # A unique, space-free marker so we can find exactly our record back.
     marker = f"frappe-cli-smoke-{uuid.uuid4().hex}"
 
-    created = run_json(
-        "doc", "create", DOCTYPE, "--set", f"description={marker}", "--json"
-    )
+    created = run_json("doc", "create", DOCTYPE, "--set", f"description={marker}")
     name = created["name"]
 
     try:
-        got = run_json("doc", "get", DOCTYPE, name, "--json")
+        got = run_json("doc", "get", DOCTYPE, name)
         assert got["name"] == name
         assert marker in (got.get("description") or "")
 
         # Server-side filter round-trips to exactly the doc we created.
-        rows = run_json("doc", "list", DOCTYPE, "-f", f"description={marker}", "--json")
+        rows = run_json("doc", "list", DOCTYPE, "-f", f"description={marker}")
         assert [r["name"] for r in rows] == [name]
 
-        updated = run_json(
-            "doc", "update", DOCTYPE, name, "--set", "status=Closed", "--json"
-        )
+        updated = run_json("doc", "update", DOCTYPE, name, "--set", "status=Closed")
         assert updated["status"] == "Closed"
     finally:
-        deleted = run("doc", "delete", DOCTYPE, name, "--yes", "--json")
+        # --yes is a global option and must precede the command group.
+        deleted = run("--yes", "doc", "delete", DOCTYPE, name)
         assert deleted.returncode == 0, deleted.stderr
 
     # After deletion the doc is gone: a get fails with exit code 1.
-    missing = run("doc", "get", DOCTYPE, name, "--json")
+    missing = run("doc", "get", DOCTYPE, name)
     assert missing.returncode == 1
 
 
 def test_delete_refuses_without_confirmation():
     # Non-interactive delete without --yes must refuse (usage error, code 2)
     # before it ever touches the server.
-    proc = run("doc", "delete", DOCTYPE, "does-not-exist", "--json")
+    proc = run("doc", "delete", DOCTYPE, "does-not-exist")
     assert proc.returncode == 2
     assert "--yes" in proc.stderr
 
 
 def test_missing_doc_reports_clean_error():
-    proc = run("doc", "get", DOCTYPE, f"missing-{uuid.uuid4().hex}", "--json")
+    proc = run("doc", "get", DOCTYPE, f"missing-{uuid.uuid4().hex}")
     assert proc.returncode == 1
     assert proc.stdout.strip() == ""  # no half-baked JSON on stdout
     assert proc.stderr.strip()  # a human-readable error on stderr

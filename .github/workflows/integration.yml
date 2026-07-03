@@ -1,0 +1,147 @@
+name: Integration
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+  workflow_dispatch:
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        # tmpfs for the datadir keeps the ephemeral CI DB fast (mirrors Frappe's own CI).
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+          --tmpfs=/var/lib/mysql:rw,noexec,nosuid,size=2g
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      # The site the CLI talks to. Served as the bench's default site, so the
+      # CLI can reach it over plain 127.0.0.1 without any /etc/hosts juggling.
+      SITE: test.localhost
+      FRAPPE_SITE: http://127.0.0.1:8000
+
+    steps:
+      - name: Checkout frappe-cli
+        uses: actions/checkout@v4
+
+      # --- The CLI under test (managed by uv, isolated from the bench env) ---
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install frappe-cli
+        run: uv sync --extra dev
+
+      # --- Toolchain for provisioning a Frappe bench ---
+      # setup-python runs last so `python3` on PATH is the 3.14 bench targets;
+      # `uv run` keeps using its own managed 3.12 regardless.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Set up Python for bench
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential python3-dev pkg-config \
+            libmariadb-dev mariadb-client
+
+      # Allow compressed-row DDL (older Frappe migrations), and trade crash
+      # safety for speed — the CI database is ephemeral.
+      - name: Prepare MariaDB
+        run: |
+          mariadb -h 127.0.0.1 -P 3306 -u root -proot -e "
+            SET GLOBAL innodb_read_only_compressed = OFF;
+            SET GLOBAL innodb_flush_log_at_trx_commit = 0;
+            SET GLOBAL sync_binlog = 0;"
+
+      - name: Provision a Frappe site
+        run: |
+          set -euo pipefail
+          pip install frappe-bench
+
+          bench init --skip-assets --no-backups \
+            --frappe-branch develop --python "$(which python)" ~/frappe-bench
+          cd ~/frappe-bench
+
+          # Point every redis role at the service container instead of bench's
+          # own bundled redis, so we don't need honcho/`bench start` running.
+          bench set-config -g redis_cache    "redis://localhost:6379"
+          bench set-config -g redis_queue    "redis://localhost:6379"
+          bench set-config -g redis_socketio "redis://localhost:6379"
+
+          # DB root creds + admin password via global config — the path Frappe's
+          # own CI uses, rather than the (renamed) new-site CLI flags.
+          bench set-config -g root_login root
+          bench set-config -g root_password root
+          bench set-config -g admin_password admin
+
+          bench new-site "$SITE" \
+            --db-type mariadb \
+            --db-host 127.0.0.1 \
+            --db-name test_frappe \
+            --db-password test_frappe \
+            --verbose
+          bench use "$SITE"
+
+      - name: Generate Administrator API keys
+        run: |
+          set -euo pipefail
+          cd ~/frappe-bench
+          bench --site "$SITE" execute \
+            frappe.core.doctype.user.user.generate_keys \
+            --kwargs '{"user": "Administrator"}' > keys.out
+          python - <<'PY'
+          import json, os, re
+          raw = open(os.path.expanduser("~/frappe-bench/keys.out")).read()
+          match = re.search(r'\{[^{}]*"api_secret"[^{}]*\}', raw, re.S)
+          keys = json.loads(match.group(0))
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              env.write(f"FRAPPE_API_KEY={keys['api_key']}\n")
+              env.write(f"FRAPPE_API_SECRET={keys['api_secret']}\n")
+          PY
+
+      - name: Serve the site
+        run: |
+          cd ~/frappe-bench
+          bench serve --port 8000 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/api/method/ping >/dev/null; then
+              echo "site is up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "site did not come up in time" >&2
+          exit 1
+
+      - name: Run integration tests
+        run: uv run pytest tests/integration -m integration -v
