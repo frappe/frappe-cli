@@ -1,10 +1,11 @@
-# Frappe CLI (`frappe`)
+# Frappe CLI
 
-A command-line client for [Frappe](https://frappeframework.com)
-sites, built for humans and AI agents equally. Pure API client (Frappe v15+,
-REST API v2); no bench or server-side coupling.
+[![CI](https://github.com/frappe/frappe-cli/actions/workflows/test.yml/badge.svg)](https://github.com/frappe/frappe-cli/actions/workflows/test.yml)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](#license)
 
-> Status: pre-1.0, experimental. MIT licensed.
+A command-line client for [Frappe](https://frappeframework.com) sites, built for
+humans and AI agents equally. A pure REST API v2 client for Frappe v16; no bench
+or server-side coupling required.
 
 New here (or an agent)? Run `frappe-cli guide` for a one-screen primer covering auth,
 the core verbs, filtering and the raw-API escape hatch.
@@ -94,11 +95,6 @@ frappe-cli doc list "Sales Invoice" -f 'grand_total>1000' -f 'customer like %Inc
 frappe-cli doc list "Sales Invoice" --filters-json '[["status","in",["Paid","Overdue"]]]'
 ```
 
-## Notes
+## License
 
-- **Background jobs**: no dedicated command — `frappe-cli doc list "RQ Job"` works
-  (virtual DocType in v15).
-- **Workflow actions** (approvals): use
-  `frappe-cli api method/frappe.model.workflow.apply_workflow` for now.
-- **MCP**: not built in; the internal client library is kept clean enough that
-  an MCP wrapper stays possible later.
+MIT
