@@ -4,8 +4,7 @@
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](#license)
 
 A command-line client for [Frappe](https://frappeframework.com) sites, built for
-humans and AI agents equally. A pure REST API v2 client for Frappe v16; no bench
-or server-side coupling required.
+humans and AI agents. A pure REST API v2 client for Frappe v16+.
 
 New here (or an agent)? Run `frappe-cli guide` for a one-screen primer covering auth,
 the core verbs, filtering and the raw-API escape hatch.
