@@ -20,7 +20,9 @@ from ..output import (
 )
 from ..session import get_client
 
-app = typer.Typer(no_args_is_help=True, help="Create, read, update and delete documents.")
+app = typer.Typer(
+    no_args_is_help=True, help="Create, read, update and delete documents."
+)
 
 
 def _read_stdin_json() -> Optional[dict]:
@@ -68,9 +70,13 @@ def list_docs(
         None, "--filters-json", help="Full Frappe filter syntax as JSON."
     ),
     fields: Optional[str] = typer.Option(
-        None, "--fields", help="Comma-separated fields, or '*' for all. Default: meta-driven."
+        None,
+        "--fields",
+        help="Comma-separated fields, or '*' for all. Default: meta-driven.",
     ),
-    order_by: Optional[str] = typer.Option(None, "--order-by", help="e.g. 'creation desc'."),
+    order_by: Optional[str] = typer.Option(
+        None, "--order-by", help="e.g. 'creation desc'."
+    ),
     limit: int = typer.Option(20, "--limit", help="Max rows."),
     all_: bool = typer.Option(False, "--all", help="Auto-paginate all matching rows."),
 ):
@@ -104,7 +110,9 @@ def list_docs(
     emit_list(c, rows, columns)
 
 
-def _fetch(client, doctype, field_list, flt, order_by, limit, all_, c: Ctx) -> list[dict]:
+def _fetch(
+    client, doctype, field_list, flt, order_by, limit, all_, c: Ctx
+) -> list[dict]:
     if not all_:
         rows, _ = client.list_documents(
             doctype,
@@ -184,8 +192,12 @@ def update_doc(
     ctx: typer.Context,
     doctype: str = typer.Argument(...),
     name: str = typer.Argument(...),
-    set_values: list[str] = typer.Option([], "--set", help="field=value scalar. Repeatable."),
-    input_file: Optional[str] = typer.Option(None, "--input", help="JSON document file."),
+    set_values: list[str] = typer.Option(
+        [], "--set", help="field=value scalar. Repeatable."
+    ),
+    input_file: Optional[str] = typer.Option(
+        None, "--input", help="JSON document file."
+    ),
     force: bool = typer.Option(
         False, "--force", help="Skip optimistic-concurrency check (overwrite)."
     ),
@@ -320,5 +332,7 @@ def amend_doc(
     except FrappeError as e:
         raise fail(e.message)
     if not c.json:
-        err_console.print(f"[green]amended[/green] {doctype} {name} → {doc.get('name')}")
+        err_console.print(
+            f"[green]amended[/green] {doctype} {name} → {doc.get('name')}"
+        )
     emit_record(c, doc)

@@ -97,7 +97,13 @@ class UsageError(FrappeError):
 def strip_html(text: str) -> str:
     text = _TAG_RE.sub("", text)
     # Collapse the few entities Frappe commonly emits.
-    for a, b in (("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&#39;", "'"), ("&quot;", '"')):
+    for a, b in (
+        ("&amp;", "&"),
+        ("&lt;", "<"),
+        ("&gt;", ">"),
+        ("&#39;", "'"),
+        ("&quot;", '"'),
+    ):
         text = text.replace(a, b)
     return text.strip()
 

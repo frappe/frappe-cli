@@ -41,7 +41,10 @@ def api(
         [], "-f", "--raw-field", help="key=value param (always string). Repeatable."
     ),
     method: Optional[str] = typer.Option(
-        None, "--method", "-X", help="HTTP method. Default: GET, or POST if params/input given."
+        None,
+        "--method",
+        "-X",
+        help="HTTP method. Default: GET, or POST if params/input given.",
     ),
     input_file: Optional[str] = typer.Option(
         None, "--input", help="JSON request body file ('-' for stdin)."
@@ -73,7 +76,7 @@ def api(
 
     clean_path = path.lstrip("/")
     if clean_path.startswith("api/v2/"):
-        clean_path = clean_path[len("api/v2/"):]
+        clean_path = clean_path[len("api/v2/") :]
     full_path = f"/api/v2/{clean_path}"
 
     client = get_client(c)
@@ -83,7 +86,10 @@ def api(
         else:
             payload = body if body is not None else params
             result = client.request(
-                http_method, full_path, json_body=payload, params=params if body is not None else None
+                http_method,
+                full_path,
+                json_body=payload,
+                params=params if body is not None else None,
             )
     except FrappeError as e:
         raise fail(e.message)

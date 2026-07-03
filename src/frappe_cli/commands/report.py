@@ -54,7 +54,9 @@ def run_report(
     ctx: typer.Context,
     report: str = typer.Argument(..., help="Report name, e.g. 'Accounts Receivable'."),
     filters: list[str] = typer.Option([], "-f", help="field=value filter. Repeatable."),
-    filters_json: Optional[str] = typer.Option(None, "--filters-json", help="Filters as JSON."),
+    filters_json: Optional[str] = typer.Option(
+        None, "--filters-json", help="Filters as JSON."
+    ),
 ):
     """Run a report and print its rows."""
     c = get_ctx(ctx)

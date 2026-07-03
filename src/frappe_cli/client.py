@@ -98,7 +98,12 @@ class FrappeClient:
         return body
 
     def raw(
-        self, method: str, path: str, *, params: dict | None = None, json_body: Any = None
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict | None = None,
+        json_body: Any = None,
     ) -> httpx.Response:
         """Like :meth:`request` but returns the raw response (for downloads)."""
         try:

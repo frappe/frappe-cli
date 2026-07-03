@@ -19,9 +19,13 @@ app = typer.Typer(no_args_is_help=True, help="Upload and download files.")
 def upload(
     ctx: typer.Context,
     path: str = typer.Argument(..., help="Local file to upload."),
-    doctype: Optional[str] = typer.Option(None, "--doctype", help="Attach to this DocType."),
+    doctype: Optional[str] = typer.Option(
+        None, "--doctype", help="Attach to this DocType."
+    ),
     name: Optional[str] = typer.Option(None, "--name", help="Attach to this document."),
-    fieldname: Optional[str] = typer.Option(None, "--fieldname", help="Attach to this field."),
+    fieldname: Optional[str] = typer.Option(
+        None, "--fieldname", help="Attach to this field."
+    ),
     private: bool = typer.Option(False, "--private", help="Mark the file private."),
 ):
     """Upload a file, optionally attaching it to a document."""
@@ -57,7 +61,10 @@ def download(
     ctx: typer.Context,
     ref: str = typer.Argument(..., help="File document name, or a /files/... URL."),
     output: Optional[str] = typer.Option(
-        None, "--output", "-o", help="Output path. Default: derived filename, or '-' for stdout."
+        None,
+        "--output",
+        "-o",
+        help="Output path. Default: derived filename, or '-' for stdout.",
     ),
 ):
     """Download a file by File name or by file URL."""
@@ -87,7 +94,9 @@ def download(
         sys.stdout.buffer.write(content)
         return
 
-    out_path = output or file_name or os.path.basename(file_url.split("?", 1)[0]) or "download"
+    out_path = (
+        output or file_name or os.path.basename(file_url.split("?", 1)[0]) or "download"
+    )
     try:
         with open(out_path, "wb") as f:
             f.write(content)
@@ -99,4 +108,6 @@ def download(
 
         print_json({"saved": out_path, "bytes": len(content), "file_url": file_url})
     else:
-        err_console.print(f"[green]downloaded[/green] {out_path} ({len(content)} bytes)")
+        err_console.print(
+            f"[green]downloaded[/green] {out_path} ({len(content)} bytes)"
+        )
