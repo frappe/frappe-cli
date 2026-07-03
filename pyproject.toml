@@ -35,3 +35,6 @@ packages = ["src/frappe_cli"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "integration: end-to-end tests that hit a live Frappe site (skipped unless FRAPPE_SITE is set).",
+]
