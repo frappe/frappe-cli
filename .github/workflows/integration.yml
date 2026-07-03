@@ -60,21 +60,33 @@ jobs:
         with:
           node-version: 24
 
+      # Warm yarn's download cache so `bench init` installs frappe's node deps
+      # from disk instead of re-fetching them from the registry every run. The
+      # run_id in the key always writes a fresh cache; restore-keys pulls the
+      # newest prior one so it stays current as frappe's deps drift.
+      - name: Cache yarn packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/yarn
+          key: yarn-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            yarn-${{ runner.os }}-
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential python3-dev pkg-config \
+            build-essential pkg-config \
             libmariadb-dev mariadb-client
 
-      - name: Prepare MariaDB
+      - name: Install Bench
         run: |
-          mariadb -h 127.0.0.1 -P 3306 -u root -proot
+          uv tool install frappe-bench
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Provision a Frappe site
         run: |
           set -euo pipefail
-          pip install frappe-bench
 
           bench init --skip-assets --no-backups \
             --skip-redis-config-generation \
