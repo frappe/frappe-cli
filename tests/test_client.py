@@ -80,6 +80,33 @@ def test_call_method_get():
 
 
 @respx.mock
+def test_redirect_is_an_error_not_success():
+    # An auth failure that 302s to a login page must surface as an error,
+    # not a spurious success returning the login HTML.
+    respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
+        return_value=httpx.Response(302, headers={"location": "/login"})
+    )
+    with pytest.raises(FrappeError) as ei:
+        client().get_document("ToDo", "X")
+    assert ei.value.status_code == 302
+    assert "redirect" in ei.value.message.lower()
+
+
+@respx.mock
+def test_raw_follows_redirects_for_downloads():
+    # File URLs may redirect to object storage; raw() must follow.
+    respx.get(f"{BASE}/private/files/x.bin").mock(
+        return_value=httpx.Response(302, headers={"location": f"{BASE}/cdn/x.bin"})
+    )
+    respx.get(f"{BASE}/cdn/x.bin").mock(
+        return_value=httpx.Response(200, content=b"payload")
+    )
+    resp = client().raw("GET", "/private/files/x.bin")
+    assert resp.status_code == 200
+    assert resp.content == b"payload"
+
+
+@respx.mock
 def test_count():
     respx.get(f"{BASE}/api/v2/doctype/ToDo/count").mock(
         return_value=httpx.Response(200, json={"data": 7})

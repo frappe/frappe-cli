@@ -28,7 +28,10 @@ class FrappeClient:
                 "User-Agent": "frappe-cli",
             },
             timeout=timeout,
-            follow_redirects=True,
+            # API calls never legitimately redirect. Following them would turn an
+            # auth failure that 302s to a login page into a spurious 2xx returning
+            # HTML. The download path opts back in per-request (object storage).
+            follow_redirects=False,
         )
 
     def close(self) -> None:
@@ -72,6 +75,9 @@ class FrappeClient:
         return self._handle(resp)
 
     def _handle(self, resp: httpx.Response) -> Any:
+        if resp.is_redirect:
+            raise FrappeError(_redirect_msg(resp), resp.status_code)
+
         body: Any = None
         if resp.content:
             try:
@@ -105,10 +111,17 @@ class FrappeClient:
         params: dict | None = None,
         json_body: Any = None,
     ) -> httpx.Response:
-        """Like :meth:`request` but returns the raw response (for downloads)."""
+        """Like :meth:`request` but returns the raw response (for downloads).
+
+        Redirects are followed here: file URLs may 3xx to object storage.
+        """
         try:
             resp = self._http.request(
-                method, path, params=_clean_params(params), json=json_body
+                method,
+                path,
+                params=_clean_params(params),
+                json=json_body,
+                follow_redirects=True,
             )
         except httpx.HTTPError as e:
             raise FrappeError(f"Could not reach {self.site}: {e}") from e
@@ -150,6 +163,8 @@ class FrappeClient:
         except httpx.HTTPError as e:
             raise FrappeError(f"Could not reach {self.site}: {e}") from e
 
+        if resp.is_redirect:
+            raise FrappeError(_redirect_msg(resp), resp.status_code)
         if resp.status_code >= 400:
             body = _safe_json(resp)
             raise FrappeError(extract_message(body, resp.status_code), resp.status_code)
@@ -232,6 +247,17 @@ class FrappeClient:
             data=data,
             files={"file": (filename, fileobj)},
         )
+
+
+def _redirect_msg(resp: httpx.Response) -> str:
+    loc = resp.headers.get("location", "")
+    return (
+        f"Unexpected redirect ({resp.status_code})"
+        + (f" to {loc}" if loc else "")
+        + ". The site URL or credentials may be wrong — an auth failure can "
+        "redirect to a login page. Check the scheme (http vs https) and run "
+        "'frappe-cli auth whoami'."
+    )
 
 
 def _clean_params(params: dict | None) -> dict | None:
