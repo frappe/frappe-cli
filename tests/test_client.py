@@ -93,17 +93,29 @@ def test_redirect_is_an_error_not_success():
 
 
 @respx.mock
-def test_raw_follows_redirects_for_downloads():
-    # File URLs may redirect to object storage; raw() must follow.
+def test_stream_download_follows_redirects_and_chunks():
+    # File URLs may redirect to object storage; stream_download must follow,
+    # write via the callback, and report the total byte count.
     respx.get(f"{BASE}/private/files/x.bin").mock(
         return_value=httpx.Response(302, headers={"location": f"{BASE}/cdn/x.bin"})
     )
     respx.get(f"{BASE}/cdn/x.bin").mock(
         return_value=httpx.Response(200, content=b"payload")
     )
-    resp = client().raw("GET", "/private/files/x.bin")
-    assert resp.status_code == 200
-    assert resp.content == b"payload"
+    chunks: list[bytes] = []
+    total = client().stream_download("/private/files/x.bin", chunks.append)
+    assert b"".join(chunks) == b"payload"
+    assert total == len(b"payload")
+
+
+@respx.mock
+def test_stream_download_raises_on_error():
+    respx.get(f"{BASE}/private/files/missing.bin").mock(
+        return_value=httpx.Response(404, json={"errors": [{"message": "gone"}]})
+    )
+    with pytest.raises(FrappeError) as ei:
+        client().stream_download("/private/files/missing.bin", lambda _b: None)
+    assert ei.value.status_code == 404
 
 
 @respx.mock

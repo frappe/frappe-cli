@@ -103,37 +103,32 @@ class FrappeClient:
             return body["data"]
         return body
 
-    def raw(
-        self,
-        method: str,
-        path: str,
-        *,
-        params: dict | None = None,
-        json_body: Any = None,
-    ) -> httpx.Response:
-        """Like :meth:`request` but returns the raw response (for downloads).
+    def stream_download(self, path: str, writer, *, params: dict | None = None) -> int:
+        """Stream a GET body to ``writer(bytes)`` in chunks; return total bytes.
 
-        Redirects are followed here: file URLs may 3xx to object storage.
+        Avoids buffering the whole file in memory. Follows redirects, since file
+        URLs may point at object storage.
         """
         try:
-            resp = self._http.request(
-                method,
+            with self._http.stream(
+                "GET",
                 path,
                 params=_clean_params(params),
-                json=json_body,
                 follow_redirects=True,
-            )
+            ) as resp:
+                if resp.status_code >= 400:
+                    resp.read()
+                    body = _safe_json(resp)
+                    raise FrappeError(
+                        extract_message(body, resp.status_code), resp.status_code
+                    )
+                total = 0
+                for chunk in resp.iter_bytes():
+                    writer(chunk)
+                    total += len(chunk)
+                return total
         except httpx.HTTPError as e:
             raise FrappeError(f"Could not reach {self.site}: {e}") from e
-        if resp.status_code >= 400:
-            body: Any = None
-            if resp.content:
-                try:
-                    body = resp.json()
-                except (json.JSONDecodeError, ValueError):
-                    body = resp.text
-            raise FrappeError(extract_message(body, resp.status_code), resp.status_code)
-        return resp
 
     # --- documents ---------------------------------------------------------
 
