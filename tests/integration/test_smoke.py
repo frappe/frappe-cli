@@ -121,6 +121,38 @@ def test_doc_crud_lifecycle():
     assert missing.returncode == 1
 
 
+# frappe.ping is the ideal smoke method: guest-accessible, parameter-free, and
+# present on every Frappe site that exposes discovery at all.
+PING = "frappe.ping"
+
+
+def test_method_list_includes_ping():
+    result = run_json("method", "list")
+    paths = {m["path"] for m in result["methods"]}
+    assert PING in paths
+
+
+def test_method_search_finds_ping():
+    result = run_json("method", "search", "-q", "ping")
+    hit = next(r for r in result["results"] if r["path"] == PING)
+    assert hit["allow_guest"] is True
+
+
+def test_method_show_exposes_contract():
+    result = run_json("method", "show", PING)
+    assert result["path"] == PING
+    assert result["allow_guest"] is True
+    assert result["endpoint"] == f"/api/v2/method/{PING}"
+    assert "GET" in result["http_methods"]
+
+
+def test_method_show_missing_reports_clean_error():
+    proc = run("method", "show", f"frappe.does_not_exist_{uuid.uuid4().hex}")
+    assert proc.returncode == 1
+    assert proc.stdout.strip() == ""  # no half-baked JSON on stdout
+    assert proc.stderr.strip()  # a human-readable error on stderr
+
+
 def test_delete_refuses_without_confirmation():
     # Non-interactive delete without --yes must refuse (usage error, code 2)
     # before it ever touches the server.
