@@ -1,4 +1,4 @@
-name: Integration
+name: CI
 
 on:
   push:
@@ -8,6 +8,42 @@ on:
   workflow_dispatch:
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run tests
+        run: uv run pytest
+
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
+        with:
+          python-version: "3.14"
+
+      - name: Run pre-commit
+        env:
+          SKIP: no-commit-to-branch
+        run: uvx pre-commit run --all-files --show-diff-on-failure
+
   integration:
     runs-on: ubuntu-latest
 
@@ -147,3 +183,38 @@ jobs:
         run: uv run pytest tests/integration -m integration -v
         env:
           FRAPPE_SITE: http://test.localhost:8000
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Only release after all checks pass, and only on a push to develop
+    # (not PRs, which can't access the release token anyway).
+    needs: [test, pre-commit, integration]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    steps:
+      - name: Checkout Entire Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Setup dependencies
+        run: |
+          npm install @semantic-release/git @semantic-release/exec --no-save
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GIT_AUTHOR_NAME: "Frappe CLI Bot"
+          GIT_AUTHOR_EMAIL: "developers@frappe.io"
+          GIT_COMMITTER_NAME: "Frappe CLI Bot"
+          GIT_COMMITTER_EMAIL: "developers@frappe.io"
+        run: npx semantic-release
