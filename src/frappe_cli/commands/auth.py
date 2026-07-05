@@ -25,7 +25,12 @@ def login(
     ctx: typer.Context,
     site: str = typer.Argument(..., help="Site URL, e.g. https://erp.example.com"),
     name: Optional[str] = typer.Option(
-        None, "--name", help="Profile name (default: the site host)."
+        None, "--name", help="Profile name / shorthand (default: the site host)."
+    ),
+    description: Optional[str] = typer.Option(
+        None,
+        "--description",
+        help="Note describing the site; assistant mode uses it to pick a site.",
     ),
     set_default: bool = typer.Option(
         False,
@@ -51,12 +56,23 @@ def login(
             2,
         )
 
-    profile = name or _default_profile_name(config._normalize_site(site))
+    norm_site = config._normalize_site(site)
+
+    # A friendly shorthand and a description are both prompted for (with sane
+    # defaults) unless supplied as flags, so a stored site is easy to pick
+    # later — by a human at `auth list` or by an agent in assistant mode.
+    profile = (
+        name
+        if name is not None
+        else typer.prompt("Profile name", default=_default_profile_name(norm_site))
+    )
+    if description is None:
+        description = typer.prompt(
+            "Description (used by assistant mode; optional)", default=""
+        )
 
     api_key = typer.prompt("API key")
     api_secret = typer.prompt("API secret", hide_input=True)
-
-    norm_site = config._normalize_site(site)
 
     # Verify before storing so we never persist dead credentials.
     try:
@@ -67,7 +83,12 @@ def login(
 
     try:
         config.add_profile(
-            profile, norm_site, api_key, api_secret, make_default=set_default
+            profile,
+            norm_site,
+            api_key,
+            api_secret,
+            make_default=set_default,
+            description=description or "",
         )
     except config.ConfigError as e:
         raise fail(str(e), 2)
@@ -96,11 +117,12 @@ def list_profiles(ctx: typer.Context):
         {
             "profile": name,
             "site": info.get("site", ""),
+            "description": info.get("description", ""),
             "default": name == default,
         }
         for name, info in profiles.items()
     ]
-    emit_list(c, rows, ["profile", "site", "default"])
+    emit_list(c, rows, ["profile", "site", "description", "default"])
     if not rows and not c.json:
         err_console.print(
             "[dim]No profiles. Run 'frappe-cli auth login <url>' or use FRAPPE_SITE env vars.[/dim]"
@@ -133,6 +155,60 @@ def set_default(
     err_console.print(f"[green]default[/green] is now '{name}'")
 
 
+@app.command("configure")
+def configure(
+    ctx: typer.Context,
+    profile: str = typer.Argument(..., help="Profile to reconfigure."),
+    name: Optional[str] = typer.Option(
+        None, "--name", help="New profile name / shorthand."
+    ),
+    description: Optional[str] = typer.Option(
+        None,
+        "--description",
+        help="New description; pass an empty string to clear it.",
+    ),
+):
+    """Reconfigure a stored site: rename it and/or change its description.
+
+    With no flags on a terminal, both fields are prompted for with their
+    current values as defaults. Credentials are never touched here — use
+    'auth login' to re-enter an API key/secret.
+    """
+    try:
+        profiles, _ = config.list_profiles()
+    except config.ConfigError as e:
+        raise fail(str(e), 2)
+    if profile not in profiles:
+        raise fail(
+            f"No such profile: {profile}. Run 'frappe-cli auth list' to see profiles.",
+            2,
+        )
+    current_desc = profiles[profile].get("description", "")
+
+    # Nothing on the command line: prompt interactively, or refuse when there
+    # is no terminal to prompt at (a flag would then be required).
+    if name is None and description is None:
+        if not sys.stdin.isatty():
+            raise fail(
+                "Nothing to change. Pass --name and/or --description "
+                "(this command only prompts on a terminal).",
+                2,
+            )
+        name = typer.prompt("Profile name", default=profile)
+        description = typer.prompt("Description", default=current_desc)
+
+    try:
+        if name is not None and name != profile:
+            config.rename_profile(profile, name)
+            profile = name
+        if description is not None:
+            config.set_description(profile, description)
+    except config.ConfigError as e:
+        raise fail(str(e), 2)
+
+    err_console.print(f"[green]updated[/green] profile '{profile}'")
+
+
 @app.command("whoami")
 def whoami(ctx: typer.Context):
     """Show the resolved site and logged-in user for the active profile."""
@@ -148,4 +224,12 @@ def whoami(ctx: typer.Context):
         raise fail(e.message)
     from ..output import emit_record
 
-    emit_record(c, {"site": creds.site, "user": user, "source": creds.source})
+    emit_record(
+        c,
+        {
+            "site": creds.site,
+            "user": user,
+            "source": creds.source,
+            "description": creds.description,
+        },
+    )

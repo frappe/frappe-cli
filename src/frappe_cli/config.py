@@ -33,6 +33,9 @@ class Credentials:
     api_secret: str
     # Where these came from, for error messages: "env" or a profile name.
     source: str
+    # Human-provided note describing the site (assistant mode uses this to
+    # pick the right site). Empty for env-sourced credentials.
+    description: str = ""
 
     @property
     def token(self) -> str:
@@ -130,13 +133,56 @@ def list_profiles() -> tuple[dict[str, dict], str | None]:
 
 
 def add_profile(
-    name: str, site: str, api_key: str, api_secret: str, make_default: bool = True
+    name: str,
+    site: str,
+    api_key: str,
+    api_secret: str,
+    make_default: bool = True,
+    description: str = "",
 ) -> None:
     data = _load()
     _store_secret(name, f"{api_key}:{api_secret}")
-    data["profiles"][name] = {"site": site}
+    entry = {"site": site}
+    if description:
+        entry["description"] = description
+    data["profiles"][name] = entry
     if make_default or data["default"] is None:
         data["default"] = name
+    _save(data)
+
+
+def rename_profile(name: str, new_name: str) -> None:
+    """Rename a profile, moving its secret and default pointer with it."""
+    data = _load()
+    if name not in data["profiles"]:
+        raise ConfigError(f"No such profile: {name}")
+    if new_name == name:
+        return
+    if not new_name:
+        raise ConfigError("New profile name must not be empty.")
+    if new_name in data["profiles"]:
+        raise ConfigError(f"A profile named '{new_name}' already exists.")
+
+    # Move the secret first so a keyring failure can't orphan the config entry.
+    token = _read_secret(name)
+    if token:
+        _store_secret(new_name, token)
+        _delete_secret(name)
+    data["profiles"][new_name] = data["profiles"].pop(name)
+    if data["default"] == name:
+        data["default"] = new_name
+    _save(data)
+
+
+def set_description(name: str, description: str) -> None:
+    """Set (or clear, with an empty string) a profile's description."""
+    data = _load()
+    if name not in data["profiles"]:
+        raise ConfigError(f"No such profile: {name}")
+    if description:
+        data["profiles"][name]["description"] = description
+    else:
+        data["profiles"][name].pop("description", None)
     _save(data)
 
 
@@ -220,5 +266,9 @@ def resolve(profile: str | None = None, interactive: bool = True) -> Credentials
         )
     api_key, api_secret = token.split(":", 1)
     return Credentials(
-        _normalize_site(profiles[name]["site"]), api_key, api_secret, source=name
+        _normalize_site(profiles[name]["site"]),
+        api_key,
+        api_secret,
+        source=name,
+        description=profiles[name].get("description", ""),
     )

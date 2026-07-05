@@ -187,6 +187,49 @@ def test_login_has_no_secret_flags():
     )
 
 
+def test_configure_renames_and_describes(fake_config):
+    fake_config.add_profile("acme", "http://acme.test", "k", "s")
+    result = runner.invoke(
+        app,
+        ["auth", "configure", "acme", "--name", "prod", "--description", "billing box"],
+    )
+    assert result.exit_code == 0
+    profiles, default = fake_config.list_profiles()
+    assert "acme" not in profiles
+    assert profiles["prod"]["description"] == "billing box"
+    assert default == "prod"
+
+
+def test_configure_unknown_profile_errors(fake_config):
+    result = runner.invoke(app, ["auth", "configure", "ghost", "--name", "x"])
+    assert result.exit_code == 2
+    assert "No such profile" in result.stderr
+
+
+def test_configure_no_flags_non_interactive_errors(fake_config):
+    # No TTY in the test runner and no flags: nothing to change, must refuse.
+    fake_config.add_profile("acme", "http://acme.test", "k", "s")
+    result = runner.invoke(app, ["auth", "configure", "acme"])
+    assert result.exit_code == 2
+    assert "Nothing to change" in result.stderr
+
+
+def test_configure_clears_description(fake_config):
+    fake_config.add_profile("acme", "http://acme.test", "k", "s", description="old")
+    result = runner.invoke(app, ["auth", "configure", "acme", "--description", ""])
+    assert result.exit_code == 0
+    assert "description" not in fake_config.list_profiles()[0]["acme"]
+
+
+def test_list_shows_description(fake_config):
+    fake_config.add_profile(
+        "acme", "http://acme.test", "k", "s", description="prod erp"
+    )
+    result = runner.invoke(app, ["--json", "auth", "list"])
+    assert result.exit_code == 0
+    assert "prod erp" in result.stdout
+
+
 @respx.mock
 def test_error_includes_hint(env):
     respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
