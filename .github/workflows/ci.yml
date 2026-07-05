@@ -240,6 +240,14 @@ jobs:
         with:
           node-version: 22
 
+      # `uv` is needed by the semantic-release prepare step, which runs
+      # `uv lock` to keep the lockfile's project version in sync with the
+      # bumped pyproject.toml (both are committed in the release commit).
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
+        with:
+          python-version: "3.14"
+
       - name: Setup dependencies
         run: |
           npm install @semantic-release/git @semantic-release/exec --no-save
