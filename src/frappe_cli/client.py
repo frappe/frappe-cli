@@ -47,12 +47,10 @@ class FrappeClient:
                 "User-Agent": "frappe-cli",
             },
             timeout=timeout,
-            # Never follow redirects: a redirect could send the credential to a
-            # host we did not configure. We treat any 3xx as an error instead
-            # (see _reject_redirect), so the secret only ever reaches the site
-            # the user explicitly pointed us at. The download path opts back in
-            # per-request, since file URLs may point at object storage.
-            follow_redirects=False,
+            # Follow redirects (e.g. Frappe's trailing-slash normalization).
+            # httpx strips the Authorization header on cross-origin redirects,
+            # so the credential is never handed to a host we did not configure.
+            follow_redirects=True,
         )
 
     def close(self) -> None:
@@ -96,7 +94,6 @@ class FrappeClient:
         return self._handle(resp)
 
     def _handle(self, resp: httpx.Response) -> Any:
-        _reject_redirect(resp)
         body: Any = None
         if resp.content:
             try:
@@ -125,15 +122,13 @@ class FrappeClient:
     def stream_download(self, path: str, writer, *, params: dict | None = None) -> int:
         """Stream a GET body to ``writer(bytes)`` in chunks; return total bytes.
 
-        Avoids buffering the whole file in memory. Follows redirects, since file
-        URLs may point at object storage.
+        Avoids buffering the whole file in memory.
         """
         try:
             with self._http.stream(
                 "GET",
                 path,
                 params=_clean_params(params),
-                follow_redirects=True,
             ) as resp:
                 if resp.status_code >= 400:
                     resp.read()
@@ -177,7 +172,6 @@ class FrappeClient:
         except httpx.HTTPError as e:
             raise FrappeError(f"Could not reach {self.site}: {e}") from e
 
-        _reject_redirect(resp)
         if resp.status_code >= 400:
             body = _safe_json(resp)
             raise FrappeError(extract_message(body, resp.status_code), resp.status_code)
@@ -261,22 +255,6 @@ class FrappeClient:
             "/api/v2/method/upload_file",
             data=data,
             files={"file": (filename, fileobj)},
-        )
-
-
-def _reject_redirect(resp: httpx.Response) -> None:
-    """Turn any redirect into a hard error rather than following it.
-
-    Following a redirect could hand the API key/secret to a host the user never
-    configured. We refuse and tell them to point the CLI straight at the API.
-    """
-    if resp.is_redirect:
-        location = resp.headers.get("location", "an unspecified location")
-        raise FrappeError(
-            f"{resp.request.url} redirected to {location}. Refusing to follow "
-            "redirects so credentials are never sent to a host you did not "
-            "configure. Point FRAPPE_SITE / --site directly at the API URL.",
-            resp.status_code,
         )
 
 
