@@ -26,9 +26,12 @@ AUTHENTICATION
          FRAPPE_API_SECRET=yyyy
     2. Stored profiles (interactive, human-run):
          frappe-cli auth login https://erp.example.com      # prompts, verifies, stores
-         frappe-cli auth list                                # default is marked
+         frappe-cli auth list                                # name, site, description, default
          frappe-cli auth default <profile>                   # change the default
+         frappe-cli auth configure <profile> --name <new> --description "..."  # rename / describe
          frappe-cli -s <profile> doc list ToDo               # pick a profile per command
+  A profile's description is a human-written note; in assistant mode read
+  `frappe-cli auth list` to pick the right site by its description.
   Check who/where you are:  frappe-cli auth whoami
 
   IF YOU ARE AN AGENT / SCRIPT, credentials are not your job:

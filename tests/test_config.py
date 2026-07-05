@@ -107,6 +107,61 @@ def test_remove_and_default_shift(fake_config):
     assert default == "b"
 
 
+def test_description_roundtrip(fake_config):
+    fake_config.add_profile(
+        "acme", "http://acme.test", "k", "s", description="prod billing"
+    )
+    profiles, _ = fake_config.list_profiles()
+    assert profiles["acme"]["description"] == "prod billing"
+    assert fake_config.resolve().description == "prod billing"
+
+
+def test_set_description_add_and_clear(fake_config):
+    fake_config.add_profile("acme", "http://acme.test", "k", "s")
+    fake_config.set_description("acme", "staging box")
+    assert fake_config.list_profiles()[0]["acme"]["description"] == "staging box"
+    # Empty string clears the key entirely rather than storing "".
+    fake_config.set_description("acme", "")
+    assert "description" not in fake_config.list_profiles()[0]["acme"]
+
+
+def test_set_description_unknown_profile(fake_config):
+    with pytest.raises(ConfigError):
+        fake_config.set_description("ghost", "x")
+
+
+def test_rename_profile_moves_secret_and_default(fake_config):
+    fake_config.add_profile("acme", "http://acme.test", "k", "s", description="d")
+    fake_config.rename_profile("acme", "prod")
+    profiles, default = fake_config.list_profiles()
+    assert "acme" not in profiles
+    assert profiles["prod"]["site"] == "http://acme.test"
+    assert profiles["prod"]["description"] == "d"
+    assert default == "prod"
+    # Secret follows the rename, and the resolved profile works under the new name.
+    assert fake_config.resolve("prod").token == "k:s"
+
+
+def test_rename_profile_only_updates_default_when_it_was_default(fake_config):
+    fake_config.add_profile("a", "http://a.test", "k", "s")
+    fake_config.add_profile("b", "http://b.test", "k", "s", make_default=False)
+    fake_config.rename_profile("b", "beta")
+    _, default = fake_config.list_profiles()
+    assert default == "a"
+
+
+def test_rename_profile_rejects_existing_name(fake_config):
+    fake_config.add_profile("a", "http://a.test", "k", "s")
+    fake_config.add_profile("b", "http://b.test", "k", "s")
+    with pytest.raises(ConfigError):
+        fake_config.rename_profile("a", "b")
+
+
+def test_rename_unknown_profile(fake_config):
+    with pytest.raises(ConfigError):
+        fake_config.rename_profile("ghost", "x")
+
+
 def test_config_has_no_secret(fake_config):
     fake_config.add_profile("a", "http://a.test", "key", "supersecret")
     text = fake_config.config_path().read_text()
