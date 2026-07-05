@@ -86,30 +86,40 @@ def download(
         if not file_url:
             raise fail(f"File {ref} has no file_url.")
 
-    try:
-        resp = client.raw("GET", file_url)
-    except FrappeError as e:
-        raise fail(e.message)
-
-    content = resp.content
+    # Stream to stdout without buffering the whole file in memory.
     if output == "-":
-        sys.stdout.buffer.write(content)
+        try:
+            client.stream_download(file_url, sys.stdout.buffer.write)
+        except FrappeError as e:
+            raise fail(e.message)
         return
 
     out_path = (
         output or file_name or os.path.basename(file_url.split("?", 1)[0]) or "download"
     )
+    # Stream into a temp file and rename on success, so a mid-download failure
+    # never leaves a truncated file at the target path.
+    tmp_path = out_path + ".part"
     try:
-        with open(out_path, "wb") as f:
-            f.write(content)
-    except OSError as e:
+        with open(tmp_path, "wb") as f:
+            total = client.stream_download(file_url, f.write)
+        os.replace(tmp_path, out_path)
+    except (FrappeError, OSError) as e:
+        _unlink_quietly(tmp_path)
+        if isinstance(e, FrappeError):
+            raise fail(e.message)
         raise fail(f"Could not write {out_path}: {e}")
 
     if c.json:
         from ..output import print_json
 
-        print_json({"saved": out_path, "bytes": len(content), "file_url": file_url})
+        print_json({"saved": out_path, "bytes": total, "file_url": file_url})
     else:
-        err_console.print(
-            f"[green]downloaded[/green] {out_path} ({len(content)} bytes)"
-        )
+        err_console.print(f"[green]downloaded[/green] {out_path} ({total} bytes)")
+
+
+def _unlink_quietly(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
