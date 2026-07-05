@@ -22,7 +22,7 @@ def list_doctypes(
         None, "--module", help="Filter by module."
     ),
     custom: bool = typer.Option(False, "--custom", help="Only custom DocTypes."),
-    limit: int = typer.Option(500, "--limit", help="Max rows."),
+    limit: int = typer.Option(10000, "--limit", help="Max rows."),
 ):
     """List DocTypes on the site."""
     c = get_ctx(ctx)
