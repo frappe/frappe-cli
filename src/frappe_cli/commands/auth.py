@@ -28,7 +28,9 @@ def login(
         None, "--name", help="Profile name (default: the site host)."
     ),
     set_default: bool = typer.Option(
-        True, "--default/--no-default", help="Make this the default."
+        False,
+        "--default/--no-default",
+        help="Make this the default profile (the first profile is always the default).",
     ),
 ):
     """Store credentials for a site in the OS keyring.
@@ -70,9 +72,14 @@ def login(
     except config.ConfigError as e:
         raise fail(str(e), 2)
 
+    # The profile may still be the default even without --default: the very
+    # first profile always becomes the default (see config.add_profile).
+    _, default = config.list_profiles()
+    is_default = default == profile
+
     err_console.print(
         f"[green]logged in[/green] as {who} — profile '{profile}'"
-        + (" (default)" if set_default else "")
+        + (" (default)" if is_default else "")
     )
 
 
