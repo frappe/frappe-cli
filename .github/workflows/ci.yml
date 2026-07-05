@@ -226,8 +226,19 @@ jobs:
       contents: write
     # Only release after the CI gate passes, and only on a push to develop
     # (not PRs, which can't access the release token anyway).
+    #
+    # The `if` MUST start with a status-check function (`always()`), otherwise
+    # GitHub applies its implicit skip-propagation: because `integration` is
+    # skipped on a push, that skip taints the whole `needs` graph and this job
+    # gets skipped too — even though the intermediate `ci` job runs (it uses
+    # `!cancelled()`) and succeeds. `always()` opts out of that implicit gate,
+    # so we gate explicitly on `ci`'s result instead.
     needs: [ci]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: >-
+      always()
+      && needs.ci.result == 'success'
+      && github.event_name == 'push'
+      && github.ref == 'refs/heads/develop'
     steps:
       - name: Checkout Entire Repository
         uses: actions/checkout@v7
