@@ -32,6 +32,24 @@ def test_parse_set():
     assert helpers.parse_set(["a=1", "b=x", "c=true"]) == {"a": 1, "b": "x", "c": True}
 
 
+@pytest.mark.parametrize(
+    "token,expected",
+    [
+        # Leading zeros must survive: pincodes, phone numbers, item codes.
+        ("pincode=01234", ["pincode", "=", "01234"]),
+        ("phone=0123456789", ["phone", "=", "0123456789"]),
+        ("code=007", ["code", "=", "007"]),
+        ("neg=-007", ["neg", "=", "-007"]),
+        # But plain numbers and normal decimals still coerce.
+        ("n=0", ["n", "=", 0]),
+        ("f=0.5", ["f", "=", 0.5]),
+        ("n=10", ["n", "=", 10]),
+    ],
+)
+def test_parse_filter_preserves_leading_zeros(token, expected):
+    assert helpers.parse_filter(token) == expected
+
+
 def test_parse_set_bad():
     with pytest.raises(UsageError):
         helpers.parse_set(["nope"])
