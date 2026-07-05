@@ -16,10 +16,29 @@ from .errors import FrappeError, extract_message
 
 DEFAULT_TIMEOUT = 60.0
 
+# Hosts for which plain HTTP is tolerated: the API secret never leaves the box.
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+
+
+def _is_local_host(host: str) -> bool:
+    host = (host or "").lower()
+    return host in _LOCAL_HOSTS or host.endswith(".localhost")
+
 
 class FrappeClient:
     def __init__(self, site: str, token: str, timeout: float = DEFAULT_TIMEOUT):
         self.site = site.rstrip("/")
+
+        # Refuse to put the API key/secret on the wire in cleartext. Plain HTTP
+        # is only allowed for local development (localhost / *.localhost / loopback).
+        parsed = httpx.URL(self.site)
+        if parsed.scheme == "http" and not _is_local_host(parsed.host):
+            raise FrappeError(
+                f"Refusing to talk to {self.site} over plain HTTP: the API key "
+                "and secret would be sent in cleartext. Use an https:// URL "
+                "(or a localhost address for local development)."
+            )
+
         self._http = httpx.Client(
             base_url=self.site,
             headers={
@@ -28,38 +47,12 @@ class FrappeClient:
                 "User-Agent": "frappe-cli",
             },
             timeout=timeout,
-            # Follow redirects, but never hand the credential to a different
-            # origin. The secret rides in the standard ``Authorization`` header,
-            # which httpx strips on any cross-origin redirect (keeping it only
-            # for a same-host http->https upgrade). We assert this guarantee in
-            # ``_strip_auth_on_redirect`` below and lock it in with a test, so a
-            # redirect to an attacker-controlled host can never leak the token.
-            follow_redirects=True,
-            event_hooks={"request": [self._strip_auth_on_redirect]},
+            # Never follow redirects: a redirect could send the credential to a
+            # host we did not configure. We treat any 3xx as an error instead
+            # (see _reject_redirect), so the secret only ever reaches the site
+            # the user explicitly pointed us at.
+            follow_redirects=False,
         )
-
-    def _strip_auth_on_redirect(self, request: httpx.Request) -> None:
-        """Belt-and-suspenders: drop the credential on any cross-origin hop.
-
-        httpx already removes ``Authorization`` when redirecting away from the
-        origin; this hook makes that defence explicit and independent of httpx
-        internals. It fires for every outgoing request, including each hop of a
-        redirect chain, and clears the header whenever the target host/scheme/
-        port no longer matches the configured site.
-        """
-        origin = httpx.URL(self.site)
-        u = request.url
-        same_origin = (
-            u.scheme == origin.scheme
-            and u.host == origin.host
-            and u.port == origin.port
-        )
-        # Permit the common same-host http->https upgrade; block everything else.
-        https_upgrade = (
-            origin.scheme == "http" and u.scheme == "https" and u.host == origin.host
-        )
-        if not same_origin and not https_upgrade:
-            request.headers.pop("Authorization", None)
 
     def close(self) -> None:
         self._http.close()
@@ -102,6 +95,7 @@ class FrappeClient:
         return self._handle(resp)
 
     def _handle(self, resp: httpx.Response) -> Any:
+        _reject_redirect(resp)
         body: Any = None
         if resp.content:
             try:
@@ -142,6 +136,7 @@ class FrappeClient:
             )
         except httpx.HTTPError as e:
             raise FrappeError(f"Could not reach {self.site}: {e}") from e
+        _reject_redirect(resp)
         if resp.status_code >= 400:
             body: Any = None
             if resp.content:
@@ -180,6 +175,7 @@ class FrappeClient:
         except httpx.HTTPError as e:
             raise FrappeError(f"Could not reach {self.site}: {e}") from e
 
+        _reject_redirect(resp)
         if resp.status_code >= 400:
             body = _safe_json(resp)
             raise FrappeError(extract_message(body, resp.status_code), resp.status_code)
@@ -261,6 +257,22 @@ class FrappeClient:
             "/api/v2/method/upload_file",
             data=data,
             files={"file": (filename, fileobj)},
+        )
+
+
+def _reject_redirect(resp: httpx.Response) -> None:
+    """Turn any redirect into a hard error rather than following it.
+
+    Following a redirect could hand the API key/secret to a host the user never
+    configured. We refuse and tell them to point the CLI straight at the API.
+    """
+    if resp.is_redirect:
+        location = resp.headers.get("location", "an unspecified location")
+        raise FrappeError(
+            f"{resp.request.url} redirected to {location}. Refusing to follow "
+            "redirects so credentials are never sent to a host you did not "
+            "configure. Point FRAPPE_SITE / --site directly at the API URL.",
+            resp.status_code,
         )
 
 

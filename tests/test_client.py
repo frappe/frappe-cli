@@ -5,7 +5,7 @@ import respx
 from frappe_cli.client import FrappeClient
 from frappe_cli.errors import FrappeError
 
-BASE = "http://site.test"
+BASE = "http://localhost"
 
 
 def client():
@@ -88,29 +88,29 @@ def test_count():
 
 
 @respx.mock
-def test_secret_not_forwarded_on_cross_origin_redirect():
-    # A redirect to a different host must NOT carry the credential with it.
-    evil = "http://evil.test"
+def test_redirect_is_refused_and_secret_never_forwarded():
+    # A redirect must hard-fail; the redirect target must never be requested,
+    # so the credential can never reach it.
+    evil = "https://evil.test"
     respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
         return_value=httpx.Response(302, headers={"Location": f"{evil}/steal"})
     )
     landing = respx.get(f"{evil}/steal").mock(
         return_value=httpx.Response(200, json={"data": {"name": "X"}})
     )
-    client().get_document("ToDo", "X")
-    assert "authorization" not in landing.calls.last.request.headers
+    with pytest.raises(FrappeError) as ei:
+        client().get_document("ToDo", "X")
+    assert "redirect" in ei.value.message.lower()
+    assert not landing.called  # never even contacted the redirect target
 
 
-@respx.mock
-def test_secret_preserved_on_same_host_https_upgrade():
-    # A same-host http->https upgrade is trusted and keeps the credential.
-    up = respx.get("https://site.test/api/v2/document/ToDo/X/").mock(
-        return_value=httpx.Response(200, json={"data": {"name": "X"}})
-    )
-    respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
-        return_value=httpx.Response(
-            301, headers={"Location": "https://site.test/api/v2/document/ToDo/X/"}
-        )
-    )
-    client().get_document("ToDo", "X")
-    assert up.calls.last.request.headers["authorization"] == "token k:s"
+def test_refuses_plain_http_for_remote_host():
+    with pytest.raises(FrappeError) as ei:
+        FrappeClient("http://erp.example.com", "k:s")
+    assert "cleartext" in ei.value.message.lower()
+
+
+def test_allows_plain_http_on_localhost():
+    # Local development over http is fine — the secret never leaves the box.
+    for site in ("http://localhost:8000", "http://127.0.0.1", "http://dev.localhost"):
+        FrappeClient(site, "k:s").close()
