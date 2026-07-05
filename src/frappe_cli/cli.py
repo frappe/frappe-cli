@@ -11,6 +11,7 @@ from . import __version__
 from .commands import api as api_cmd
 from .commands import auth, doc, doctype, file, report
 from .commands import guide as guide_cmd
+from .commands import method as method_cmd
 from .config import ConfigError
 from .errors import FrappeError, UsageError
 from .output import Ctx, fail
@@ -29,6 +30,7 @@ app.add_typer(doc.app, name="doc")
 app.add_typer(doctype.app, name="doctype")
 app.add_typer(file.app, name="file")
 app.add_typer(report.app, name="report")
+app.add_typer(method_cmd.app, name="method")
 # `frappe-cli api <path>` — single command, mounted directly.
 app.command(name="api", help=api_cmd.api.__doc__)(api_cmd.api)
 # `frappe-cli guide` — static usage primer; the first thing an agent should run.

@@ -8,6 +8,7 @@ could sit on this class without touching the CLI.
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, BinaryIO
 
 import httpx
@@ -15,6 +16,13 @@ import httpx
 from .errors import FrappeError, extract_message
 
 DEFAULT_TIMEOUT = 60.0
+
+# Discovery is cache-backed: a cold cache answers 503 while the server queues
+# generation. Retry a bounded number of times, honouring Retry-After, so a
+# command recovers from a cold cache without ever hanging.
+DISCOVERY_MAX_RETRIES = 4
+DISCOVERY_FALLBACK_BACKOFF = 2.0  # seconds, when Retry-After is absent
+DISCOVERY_MAX_RETRY_WAIT = 30.0  # never wait longer than this per attempt
 
 # Hosts for which plain HTTP is tolerated: the API secret never leaves the box.
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
@@ -228,6 +236,64 @@ class FrappeClient:
             return self.request("GET", path, params=params)
         # Honor the caller's verb (PUT/DELETE/…) rather than silently forcing POST.
         return self.request(verb, path, json_body=params or {})
+
+    # --- discovery ---------------------------------------------------------
+
+    def _retry_after_seconds(self, resp: httpx.Response) -> float:
+        """Seconds to wait before retrying, from Retry-After or a fallback."""
+        raw = resp.headers.get("Retry-After")
+        wait = DISCOVERY_FALLBACK_BACKOFF
+        if raw:
+            try:
+                # Retry-After is most commonly an integer number of seconds.
+                # An HTTP-date form is possible but rare here; fall back if so.
+                wait = float(raw)
+            except ValueError:
+                wait = DISCOVERY_FALLBACK_BACKOFF
+        return max(0.0, min(wait, DISCOVERY_MAX_RETRY_WAIT))
+
+    def _discovery_get(self, path: str, *, params: dict | None = None) -> Any:
+        """GET a discovery endpoint, retrying transient 503s on a cold cache.
+
+        Retries are capped so a command never hangs. A persistent 503 surfaces
+        as a FrappeError like any other failure; a 404 (unsupported site or
+        unknown method) surfaces with ``status_code == 404`` for the caller to
+        interpret.
+        """
+        attempts = 0
+        while True:
+            try:
+                resp = self._http.get(path, params=_clean_params(params))
+            except httpx.HTTPError as e:
+                raise FrappeError(f"Could not reach {self.site}: {e}") from e
+            if resp.status_code == 503 and attempts < DISCOVERY_MAX_RETRIES:
+                attempts += 1
+                time.sleep(self._retry_after_seconds(resp))
+                continue
+            return self._handle(resp)
+
+    def discovery_root(self) -> Any:
+        """Root discovery document; also a capability check for the feature."""
+        return self._discovery_get("/api/v2/discovery")
+
+    def discovery_search(self, query: str) -> Any:
+        return self._discovery_get("/api/v2/discovery/search", params={"q": query})
+
+    def discovery_list(self) -> Any:
+        return self._discovery_get("/api/v2/discovery/method")
+
+    def discovery_show(self, method: str) -> Any:
+        return self._discovery_get(f"/api/v2/discovery/method/{method}")
+
+    def discovery_supported(self) -> bool:
+        """True if this site exposes method discovery (root is not a 404)."""
+        try:
+            self.discovery_root()
+            return True
+        except FrappeError as e:
+            if e.status_code == 404:
+                return False
+            raise
 
     def upload_file(
         self,

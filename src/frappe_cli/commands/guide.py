@@ -72,6 +72,12 @@ FILES
   frappe-cli file upload ./contract.pdf --doctype "Sales Invoice" --name SINV-0001 --private
   frappe-cli file download <File name|/files/url> -o out.pdf   # '-o -' streams to stdout
 
+DISCOVER METHODS (find whitelisted API methods before calling them)
+  frappe-cli method search --query="unread"          # search path/description/docstring
+  frappe-cli method list                              # all methods visible to this session
+  frappe-cli method show frappe.tests.test_api.test   # params, http methods, endpoint
+  # Results are session-scoped; requires a Frappe site that supports discovery.
+
 RAW API (the escape hatch for anything the verbs above don't cover)
   frappe-cli api method/frappe.client.get_count -F doctype=User    # -F typed, -f string
   frappe-cli api method/gameplan.api.get_unread_count
