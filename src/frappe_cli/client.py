@@ -50,7 +50,8 @@ class FrappeClient:
             # Never follow redirects: a redirect could send the credential to a
             # host we did not configure. We treat any 3xx as an error instead
             # (see _reject_redirect), so the secret only ever reaches the site
-            # the user explicitly pointed us at.
+            # the user explicitly pointed us at. The download path opts back in
+            # per-request, since file URLs may point at object storage.
             follow_redirects=False,
         )
 
@@ -121,31 +122,32 @@ class FrappeClient:
             return body["data"]
         return body
 
-    def raw(
-        self,
-        method: str,
-        path: str,
-        *,
-        params: dict | None = None,
-        json_body: Any = None,
-    ) -> httpx.Response:
-        """Like :meth:`request` but returns the raw response (for downloads)."""
+    def stream_download(self, path: str, writer, *, params: dict | None = None) -> int:
+        """Stream a GET body to ``writer(bytes)`` in chunks; return total bytes.
+
+        Avoids buffering the whole file in memory. Follows redirects, since file
+        URLs may point at object storage.
+        """
         try:
-            resp = self._http.request(
-                method, path, params=_clean_params(params), json=json_body
-            )
+            with self._http.stream(
+                "GET",
+                path,
+                params=_clean_params(params),
+                follow_redirects=True,
+            ) as resp:
+                if resp.status_code >= 400:
+                    resp.read()
+                    body = _safe_json(resp)
+                    raise FrappeError(
+                        extract_message(body, resp.status_code), resp.status_code
+                    )
+                total = 0
+                for chunk in resp.iter_bytes():
+                    writer(chunk)
+                    total += len(chunk)
+                return total
         except httpx.HTTPError as e:
             raise FrappeError(f"Could not reach {self.site}: {e}") from e
-        _reject_redirect(resp)
-        if resp.status_code >= 400:
-            body: Any = None
-            if resp.content:
-                try:
-                    body = resp.json()
-                except (json.JSONDecodeError, ValueError):
-                    body = resp.text
-            raise FrappeError(extract_message(body, resp.status_code), resp.status_code)
-        return resp
 
     # --- documents ---------------------------------------------------------
 
@@ -227,9 +229,11 @@ class FrappeClient:
         http_method: str = "POST",
     ) -> Any:
         path = f"/api/v2/method/{method}"
-        if http_method.upper() == "GET":
+        verb = http_method.upper()
+        if verb == "GET":
             return self.request("GET", path, params=params)
-        return self.request("POST", path, json_body=params or {})
+        # Honor the caller's verb (PUT/DELETE/…) rather than silently forcing POST.
+        return self.request(verb, path, json_body=params or {})
 
     def upload_file(
         self,

@@ -78,15 +78,28 @@ def _coerce(value: str) -> Any:
         return False
     if low in {"null", "none"}:
         return None
-    try:
-        return int(value)
-    except ValueError:
-        pass
-    try:
-        return float(value)
-    except ValueError:
-        pass
+    # Leave identifier-like values (leading zeros: pincodes, phone numbers, item
+    # codes like "007") as strings — coercing to int would silently drop the
+    # zeros and corrupt the written value. Quote to force a string otherwise.
+    if not _has_leading_zero(value):
+        try:
+            return int(value)
+        except ValueError:
+            pass
+        try:
+            return float(value)
+        except ValueError:
+            pass
     return value
+
+
+def _has_leading_zero(value: str) -> bool:
+    """True for integer-looking strings whose zeros must be preserved.
+
+    "0" and decimals like "0.5" are fine; "007" / "0123" are not.
+    """
+    digits = value[1:] if value[:1] in {"+", "-"} else value
+    return len(digits) > 1 and digits[0] == "0" and digits.isdigit()
 
 
 def parse_set(assignments: list[str]) -> dict:

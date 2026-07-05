@@ -80,6 +80,45 @@ def test_call_method_get():
 
 
 @respx.mock
+def test_redirect_is_an_error_not_success():
+    # An auth failure that 302s to a login page must surface as an error,
+    # not a spurious success returning the login HTML.
+    respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
+        return_value=httpx.Response(302, headers={"location": "/login"})
+    )
+    with pytest.raises(FrappeError) as ei:
+        client().get_document("ToDo", "X")
+    assert ei.value.status_code == 302
+    assert "redirect" in ei.value.message.lower()
+
+
+@respx.mock
+def test_stream_download_follows_redirects_and_chunks():
+    # File URLs may redirect to object storage; stream_download must follow,
+    # write via the callback, and report the total byte count.
+    respx.get(f"{BASE}/private/files/x.bin").mock(
+        return_value=httpx.Response(302, headers={"location": f"{BASE}/cdn/x.bin"})
+    )
+    respx.get(f"{BASE}/cdn/x.bin").mock(
+        return_value=httpx.Response(200, content=b"payload")
+    )
+    chunks: list[bytes] = []
+    total = client().stream_download("/private/files/x.bin", chunks.append)
+    assert b"".join(chunks) == b"payload"
+    assert total == len(b"payload")
+
+
+@respx.mock
+def test_stream_download_raises_on_error():
+    respx.get(f"{BASE}/private/files/missing.bin").mock(
+        return_value=httpx.Response(404, json={"errors": [{"message": "gone"}]})
+    )
+    with pytest.raises(FrappeError) as ei:
+        client().stream_download("/private/files/missing.bin", lambda _b: None)
+    assert ei.value.status_code == 404
+
+
+@respx.mock
 def test_count():
     respx.get(f"{BASE}/api/v2/doctype/ToDo/count").mock(
         return_value=httpx.Response(200, json={"data": 7})
