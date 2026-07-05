@@ -10,7 +10,7 @@ from .output import Ctx, fail
 
 def get_client(ctx: Ctx) -> FrappeClient:
     try:
-        creds = config.resolve(ctx.profile)
+        creds = config.resolve(ctx.profile, interactive=ctx.is_tty)
     except config.ConfigError as e:
         raise fail(str(e), 2)
     return FrappeClient(creds.site, creds.token)

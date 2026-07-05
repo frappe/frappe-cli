@@ -52,6 +52,36 @@ def test_no_config_no_env(fake_config):
         fake_config.resolve()
 
 
+def test_non_interactive_single_profile_ok(fake_config):
+    # A lone authenticated profile is unambiguous, so it is used everywhere.
+    fake_config.add_profile("acme", "http://acme.test", "k", "s")
+    assert fake_config.resolve(interactive=True).source == "acme"
+    assert fake_config.resolve(interactive=False).source == "acme"
+
+
+def test_non_interactive_multiple_profiles_require_explicit(fake_config):
+    # With more than one profile, the default is honoured interactively but
+    # agents/scripts must name the site.
+    fake_config.add_profile("acme", "http://acme.test", "k", "s")
+    fake_config.add_profile("beta", "http://beta.test", "k", "s")
+    fake_config.set_default("acme")
+    assert fake_config.resolve(interactive=True).source == "acme"
+    with pytest.raises(ConfigError):
+        fake_config.resolve(interactive=False)
+
+
+def test_non_interactive_explicit_profile_ok(fake_config):
+    fake_config.add_profile("acme", "http://acme.test", "k", "s")
+    assert fake_config.resolve("acme", interactive=False).source == "acme"
+
+
+def test_non_interactive_env_ok(fake_config, monkeypatch):
+    monkeypatch.setenv("FRAPPE_SITE", "erp.example.com")
+    monkeypatch.setenv("FRAPPE_API_KEY", "k")
+    monkeypatch.setenv("FRAPPE_API_SECRET", "s")
+    assert fake_config.resolve(interactive=False).source == "env"
+
+
 def test_remove_and_default_shift(fake_config):
     fake_config.add_profile("a", "http://a.test", "k", "s")
     fake_config.add_profile("b", "http://b.test", "k", "s")

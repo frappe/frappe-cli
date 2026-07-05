@@ -131,7 +131,7 @@ def whoami(ctx: typer.Context):
     """Show the resolved site and logged-in user for the active profile."""
     c = get_ctx(ctx)
     try:
-        creds = config.resolve(c.profile)
+        creds = config.resolve(c.profile, interactive=c.is_tty)
     except config.ConfigError as e:
         raise fail(str(e), 2)
     try:
