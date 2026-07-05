@@ -80,16 +80,35 @@ def test_call_method_get():
 
 
 @respx.mock
-def test_redirect_is_an_error_not_success():
-    # An auth failure that 302s to a login page must surface as an error,
-    # not a spurious success returning the login HTML.
-    respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
-        return_value=httpx.Response(302, headers={"location": "/login"})
+def test_redirect_is_followed():
+    # A redirect (e.g. Frappe's trailing-slash normalization) is followed
+    # transparently rather than surfaced as an error.
+    respx.get(f"{BASE}/api/v2/document/ToDo/X").mock(
+        return_value=httpx.Response(
+            301, headers={"location": f"{BASE}/api/v2/document/ToDo/X/"}
+        )
     )
-    with pytest.raises(FrappeError) as ei:
-        client().get_document("ToDo", "X")
-    assert ei.value.status_code == 302
-    assert "redirect" in ei.value.message.lower()
+    respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
+        return_value=httpx.Response(200, json={"data": {"name": "X"}})
+    )
+    # Request the unslashed path; the client should follow the 301 to it.
+    assert client().request("GET", "/api/v2/document/ToDo/X") == {"name": "X"}
+
+
+@respx.mock
+def test_post_redirect_replays_body_on_308():
+    # 308 must preserve method and body when following the redirect.
+    respx.post(f"{BASE}/api/v2/document/ToDo").mock(
+        return_value=httpx.Response(
+            308, headers={"location": f"{BASE}/api/v2/document/ToDo/"}
+        )
+    )
+    landing = respx.post(f"{BASE}/api/v2/document/ToDo/").mock(
+        return_value=httpx.Response(200, json={"data": {"name": "new1"}})
+    )
+    out = client().create_document("ToDo", {"description": "hi"})
+    assert out["name"] == "new1"
+    assert landing.calls.last.request.content  # body replayed to the new URL
 
 
 @respx.mock
@@ -127,9 +146,10 @@ def test_count():
 
 
 @respx.mock
-def test_redirect_is_refused_and_secret_never_forwarded():
-    # A redirect must hard-fail; the redirect target must never be requested,
-    # so the credential can never reach it.
+def test_cross_host_redirect_does_not_forward_credential():
+    # A redirect to a different host is followed, but httpx strips the
+    # Authorization header on cross-origin redirects, so the API secret is
+    # never handed to a host the user did not configure.
     evil = "https://evil.test"
     respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
         return_value=httpx.Response(302, headers={"Location": f"{evil}/steal"})
@@ -137,10 +157,8 @@ def test_redirect_is_refused_and_secret_never_forwarded():
     landing = respx.get(f"{evil}/steal").mock(
         return_value=httpx.Response(200, json={"data": {"name": "X"}})
     )
-    with pytest.raises(FrappeError) as ei:
-        client().get_document("ToDo", "X")
-    assert "redirect" in ei.value.message.lower()
-    assert not landing.called  # never even contacted the redirect target
+    client().get_document("ToDo", "X")
+    assert "authorization" not in landing.calls.last.request.headers
 
 
 def test_refuses_plain_http_for_remote_host():
