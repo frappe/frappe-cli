@@ -211,9 +211,11 @@ class FrappeClient:
         http_method: str = "POST",
     ) -> Any:
         path = f"/api/v2/method/{method}"
-        if http_method.upper() == "GET":
+        verb = http_method.upper()
+        if verb == "GET":
             return self.request("GET", path, params=params)
-        return self.request("POST", path, json_body=params or {})
+        # Honor the caller's verb (PUT/DELETE/…) rather than silently forcing POST.
+        return self.request(verb, path, json_body=params or {})
 
     def upload_file(
         self,
