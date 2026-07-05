@@ -80,7 +80,9 @@ def download(
         except FrappeError as e:
             raise fail(e.message)
         file_url = doc.get("file_url") or ""
-        file_name = doc.get("file_name")
+        # file_name is server-controlled and derived from an uploaded filename;
+        # basename it so a crafted name like "../../x" can't escape the cwd.
+        file_name = os.path.basename(doc.get("file_name") or "") or None
         if not file_url:
             raise fail(f"File {ref} has no file_url.")
 
