@@ -53,9 +53,10 @@ export FRAPPE_API_SECRET=yyyyyyyy
 is no plaintext secret fallback — if the keyring is unavailable, use env vars.
 
 ```sh
-frappe-cli auth login https://erp.example.com          # prompts, verifies, stores
+frappe-cli auth login https://erp.example.com
 frappe-cli auth login https://raven.example.com --name raven
-frappe-cli auth list                                   # default is marked
+frappe-cli auth login https://raven.example.com --name raven --default
+frappe-cli auth list
 frappe-cli auth default raven                          # change the default
 frappe-cli -s raven doc list "Raven Channel"           # pick a profile per command
 frappe-cli auth whoami

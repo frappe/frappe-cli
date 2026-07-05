@@ -82,6 +82,22 @@ def test_non_interactive_env_ok(fake_config, monkeypatch):
     assert fake_config.resolve(interactive=False).source == "env"
 
 
+def test_first_profile_always_default(fake_config):
+    # The very first profile becomes the default even without make_default,
+    # so a single-profile setup keeps working out of the box.
+    fake_config.add_profile("a", "http://a.test", "k", "s", make_default=False)
+    _, default = fake_config.list_profiles()
+    assert default == "a"
+
+
+def test_new_profile_does_not_steal_default(fake_config):
+    # Authenticating another site must not silently hijack the default.
+    fake_config.add_profile("a", "http://a.test", "k", "s")
+    fake_config.add_profile("b", "http://b.test", "k", "s", make_default=False)
+    _, default = fake_config.list_profiles()
+    assert default == "a"
+
+
 def test_remove_and_default_shift(fake_config):
     fake_config.add_profile("a", "http://a.test", "k", "s")
     fake_config.add_profile("b", "http://b.test", "k", "s")
