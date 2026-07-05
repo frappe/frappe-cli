@@ -85,3 +85,32 @@ def test_count():
         return_value=httpx.Response(200, json={"data": 7})
     )
     assert client().get_count("ToDo") == 7
+
+
+@respx.mock
+def test_secret_not_forwarded_on_cross_origin_redirect():
+    # A redirect to a different host must NOT carry the credential with it.
+    evil = "http://evil.test"
+    respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
+        return_value=httpx.Response(302, headers={"Location": f"{evil}/steal"})
+    )
+    landing = respx.get(f"{evil}/steal").mock(
+        return_value=httpx.Response(200, json={"data": {"name": "X"}})
+    )
+    client().get_document("ToDo", "X")
+    assert "authorization" not in landing.calls.last.request.headers
+
+
+@respx.mock
+def test_secret_preserved_on_same_host_https_upgrade():
+    # A same-host http->https upgrade is trusted and keeps the credential.
+    up = respx.get("https://site.test/api/v2/document/ToDo/X/").mock(
+        return_value=httpx.Response(200, json={"data": {"name": "X"}})
+    )
+    respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
+        return_value=httpx.Response(
+            301, headers={"Location": "https://site.test/api/v2/document/ToDo/X/"}
+        )
+    )
+    client().get_document("ToDo", "X")
+    assert up.calls.last.request.headers["authorization"] == "token k:s"

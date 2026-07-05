@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Optional
 
 import typer
@@ -26,23 +27,32 @@ def login(
     name: Optional[str] = typer.Option(
         None, "--name", help="Profile name (default: the site host)."
     ),
-    api_key: Optional[str] = typer.Option(
-        None, "--api-key", help="API key (else prompted)."
-    ),
-    api_secret: Optional[str] = typer.Option(
-        None, "--api-secret", help="API secret (else prompted)."
-    ),
     set_default: bool = typer.Option(
         True, "--default/--no-default", help="Make this the default."
     ),
 ):
-    """Store credentials for a site in the OS keyring."""
+    """Store credentials for a site in the OS keyring.
+
+    Login is interactive by design: the API key and secret are always prompted
+    for, never accepted as flags or piped in. Passing secrets on the command
+    line leaks them into shell history, the process list and CI logs. For
+    headless / agent use, set FRAPPE_SITE / FRAPPE_API_KEY / FRAPPE_API_SECRET
+    in the environment instead — those never touch the keyring.
+    """
+    # Refuse anything that isn't a real terminal so credentials can't be fed in
+    # by pipe, heredoc or redirect (all of which end up in history or logs).
+    if not sys.stdin.isatty():
+        raise fail(
+            "auth login is interactive only and needs a terminal to prompt for "
+            "the API key and secret. For headless / agent use set FRAPPE_SITE, "
+            "FRAPPE_API_KEY and FRAPPE_API_SECRET in the environment instead.",
+            2,
+        )
+
     profile = name or _default_profile_name(config._normalize_site(site))
 
-    if not api_key:
-        api_key = typer.prompt("API key")
-    if not api_secret:
-        api_secret = typer.prompt("API secret", hide_input=True)
+    api_key = typer.prompt("API key")
+    api_secret = typer.prompt("API secret", hide_input=True)
 
     norm_site = config._normalize_site(site)
 

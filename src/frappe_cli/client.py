@@ -28,8 +28,38 @@ class FrappeClient:
                 "User-Agent": "frappe-cli",
             },
             timeout=timeout,
+            # Follow redirects, but never hand the credential to a different
+            # origin. The secret rides in the standard ``Authorization`` header,
+            # which httpx strips on any cross-origin redirect (keeping it only
+            # for a same-host http->https upgrade). We assert this guarantee in
+            # ``_strip_auth_on_redirect`` below and lock it in with a test, so a
+            # redirect to an attacker-controlled host can never leak the token.
             follow_redirects=True,
+            event_hooks={"request": [self._strip_auth_on_redirect]},
         )
+
+    def _strip_auth_on_redirect(self, request: httpx.Request) -> None:
+        """Belt-and-suspenders: drop the credential on any cross-origin hop.
+
+        httpx already removes ``Authorization`` when redirecting away from the
+        origin; this hook makes that defence explicit and independent of httpx
+        internals. It fires for every outgoing request, including each hop of a
+        redirect chain, and clears the header whenever the target host/scheme/
+        port no longer matches the configured site.
+        """
+        origin = httpx.URL(self.site)
+        u = request.url
+        same_origin = (
+            u.scheme == origin.scheme
+            and u.host == origin.host
+            and u.port == origin.port
+        )
+        # Permit the common same-host http->https upgrade; block everything else.
+        https_upgrade = (
+            origin.scheme == "http" and u.scheme == "https" and u.host == origin.host
+        )
+        if not same_origin and not https_upgrade:
+            request.headers.pop("Authorization", None)
 
     def close(self) -> None:
         self._http.close()

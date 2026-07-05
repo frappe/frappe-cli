@@ -17,17 +17,27 @@ else. Exit codes: 0 ok, 1 failure, 2 usage error. Errors go to stderr as plain
 text and usually include a "Tip:" pointing at the command that can help.
 
 AUTHENTICATION
-  Two ways to provide credentials (an API key + secret from User > API Access):
+  Credentials are an API key + secret (from User > API Access). They are
+  provided by a human, out of band — this CLI never sets them up for you.
+  Two ways they reach the CLI:
     1. Env vars (headless / agents) — always win, never touch the keyring:
-         export FRAPPE_SITE=https://erp.example.com
-         export FRAPPE_API_KEY=xxxx
-         export FRAPPE_API_SECRET=yyyy
-    2. Stored profiles (interactive):
+         FRAPPE_SITE=https://erp.example.com
+         FRAPPE_API_KEY=xxxx
+         FRAPPE_API_SECRET=yyyy
+    2. Stored profiles (interactive, human-run):
          frappe-cli auth login https://erp.example.com      # prompts, verifies, stores
          frappe-cli auth list                                # default is marked
          frappe-cli auth default <profile>                   # change the default
          frappe-cli -s <profile> doc list ToDo               # pick a profile per command
   Check who/where you are:  frappe-cli auth whoami
+
+  IF YOU ARE AN AGENT / SCRIPT, credentials are not your job:
+    - Do NOT set, export or otherwise mutate FRAPPE_SITE / FRAPPE_API_KEY /
+      FRAPPE_API_SECRET (or any FRAPPE_* variable). Read whatever the human
+      already put in the environment; never write to it.
+    - Do NOT run `frappe-cli auth login`. It is interactive-only, refuses a
+      non-TTY, and is a human step. If `frappe-cli auth whoami` fails, STOP and
+      ask the human to authenticate — do not try to work around it.
 
 ORIENT YOURSELF (do this before guessing field or DocType names)
   frappe-cli doctype list                          # all DocTypes on the site

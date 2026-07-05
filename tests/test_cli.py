@@ -155,6 +155,38 @@ def test_guide_runs_without_auth():
     assert "frappe-cli api" in result.stdout
 
 
+def test_guide_tells_agents_not_to_touch_credentials():
+    result = runner.invoke(app, ["guide"])
+    assert result.exit_code == 0
+    # The guide must steer agents away from mutating env / auto-login.
+    assert "Do NOT set, export or otherwise mutate" in result.stdout
+    assert "Do NOT run `frappe-cli auth login`" in result.stdout
+
+
+def test_login_refuses_non_interactive():
+    # No TTY (the test runner has none): login must refuse rather than read a
+    # secret from the pipe, and it must never reach the keyring or network.
+    result = runner.invoke(
+        app, ["auth", "login", "https://erp.example.com"], input="key\nsecret\n"
+    )
+    assert result.exit_code == 2
+    assert "interactive only" in result.stderr
+    assert "FRAPPE_API_SECRET" in result.stderr
+
+
+def test_login_has_no_secret_flags():
+    # Secrets must not be acceptable as flags (they leak into shell history/ps).
+    result = runner.invoke(
+        app,
+        ["auth", "login", "https://erp.example.com", "--api-secret", "s"],
+    )
+    assert result.exit_code == 2
+    assert (
+        "api-secret" in result.stderr.lower()
+        or "no such option" in result.stderr.lower()
+    )
+
+
 @respx.mock
 def test_error_includes_hint(env):
     respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
