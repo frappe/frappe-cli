@@ -1,0 +1,51 @@
+name: Release
+
+# Every push to develop cuts a release. No CI gate is needed here: nothing
+# reaches develop except through the merge queue, which already runs the full
+# suite (unit tests, linters, integration) before fast-forwarding the branch.
+# semantic-release is a no-op when a push carries no releasable commits (e.g.
+# the bot's own `chore(release):` commit), so re-runs are harmless.
+on:
+  push:
+    branches: [develop]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Entire Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      # `uv` is needed by the semantic-release prepare step, which runs
+      # `uv lock` to keep the lockfile's project version in sync with the
+      # bumped pyproject.toml (both are committed in the release commit).
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
+        with:
+          python-version: "3.14"
+
+      - name: Setup dependencies
+        run: |
+          npm install @semantic-release/git @semantic-release/exec --no-save
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GIT_AUTHOR_NAME: "Frappe CLI Bot"
+          GIT_AUTHOR_EMAIL: "developers@frappe.io"
+          GIT_COMMITTER_NAME: "Frappe CLI Bot"
+          GIT_COMMITTER_EMAIL: "developers@frappe.io"
+        run: npx semantic-release

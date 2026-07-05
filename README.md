@@ -1,6 +1,6 @@
 # Frappe CLI
 
-[![CI](https://github.com/frappe/frappe-cli/actions/workflows/test.yml/badge.svg)](https://github.com/frappe/frappe-cli/actions/workflows/test.yml)
+[![CI](https://github.com/frappe/frappe-cli/actions/workflows/test.yml/badge.svg)](https://github.com/frappe/frappe-cli/actions/workflows/ci.yml)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](#license)
 
 A command-line client for [Frappe](https://frappeframework.com) sites, built for
