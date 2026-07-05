@@ -65,7 +65,11 @@ def api(
     body = None
     if input_file:
         try:
-            text = sys.stdin.read() if input_file == "-" else open(input_file).read()
+            if input_file == "-":
+                text = sys.stdin.read()
+            else:
+                with open(input_file) as f:
+                    text = f.read()
             body = json.loads(text)
         except (OSError, json.JSONDecodeError) as e:
             raise fail(f"Could not read --input: {e}", 2)
