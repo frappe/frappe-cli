@@ -177,7 +177,7 @@ jobs:
       - name: Serve the site
         run: |
           cd ~/frappe-bench
-          bench serve --port 8000 &
+          bench start &
           for i in $(seq 1 30); do
             if curl -sf http://test.localhost:8000/api/method/ping >/dev/null; then
               echo "site is up"; exit 0
