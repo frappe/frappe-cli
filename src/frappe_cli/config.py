@@ -166,8 +166,15 @@ def _normalize_site(site: str) -> str:
     return site
 
 
-def resolve(profile: str | None = None) -> Credentials:
-    """Resolve credentials per the documented precedence."""
+def resolve(profile: str | None = None, interactive: bool = True) -> Credentials:
+    """Resolve credentials per the documented precedence.
+
+    The configured default profile is a convenience for humans at a terminal.
+    When ``interactive`` is false (piped / agent / script invocation) the
+    default is only honoured when it is unambiguous — i.e. exactly one profile
+    is authenticated. With more than one profile the caller must pick a site
+    explicitly with ``-s/--site`` or the ``FRAPPE_*`` environment variables.
+    """
 
     env_site = os.environ.get("FRAPPE_SITE")
     # Env wins, but only when a profile wasn't explicitly requested.
@@ -181,6 +188,19 @@ def resolve(profile: str | None = None) -> Credentials:
         return Credentials(_normalize_site(env_site), key, secret, source="env")
 
     profiles, default = list_profiles()
+    # Non-interactive runs must be unambiguous. A single authenticated profile
+    # has no ambiguity, so it is used; with several, agents/scripts must name
+    # the site they operate on rather than lean on the configured default.
+    if profile is None and not interactive and len(profiles) > 1:
+        raise ConfigError(
+            "Multiple profiles are configured. Non-interactive invocations must "
+            "pick a site explicitly: pass -s/--site <profile>, or set FRAPPE_SITE, "
+            "FRAPPE_API_KEY and FRAPPE_API_SECRET. The configured default "
+            "profile is only auto-selected interactively or when it is the only one."
+        )
+    # With exactly one profile, fall back to it even when no default is set.
+    if profile is None and not interactive and len(profiles) == 1:
+        default = next(iter(profiles))
     name = profile or default
     if not name:
         raise ConfigError(

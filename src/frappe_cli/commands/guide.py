@@ -32,6 +32,11 @@ AUTHENTICATION
   Check who/where you are:  frappe-cli auth whoami
 
   IF YOU ARE AN AGENT / SCRIPT, credentials are not your job:
+    - Name the site explicitly on every command: pass -s <profile>, or rely on
+      FRAPPE_SITE/FRAPPE_API_KEY/FRAPPE_API_SECRET. When output is piped /
+      non-interactive the configured default profile is only auto-selected if
+      exactly one site is authenticated; with several, a bare command (no -s,
+      no env) will fail rather than guess.
     - Do NOT set, export or otherwise mutate FRAPPE_SITE / FRAPPE_API_KEY /
       FRAPPE_API_SECRET (or any FRAPPE_* variable). Read whatever the human
       already put in the environment; never write to it.
