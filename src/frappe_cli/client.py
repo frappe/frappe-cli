@@ -16,10 +16,29 @@ from .errors import FrappeError, extract_message
 
 DEFAULT_TIMEOUT = 60.0
 
+# Hosts for which plain HTTP is tolerated: the API secret never leaves the box.
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+
+
+def _is_local_host(host: str) -> bool:
+    host = (host or "").lower()
+    return host in _LOCAL_HOSTS or host.endswith(".localhost")
+
 
 class FrappeClient:
     def __init__(self, site: str, token: str, timeout: float = DEFAULT_TIMEOUT):
         self.site = site.rstrip("/")
+
+        # Refuse to put the API key/secret on the wire in cleartext. Plain HTTP
+        # is only allowed for local development (localhost / *.localhost / loopback).
+        parsed = httpx.URL(self.site)
+        if parsed.scheme == "http" and not _is_local_host(parsed.host):
+            raise FrappeError(
+                f"Refusing to talk to {self.site} over plain HTTP: the API key "
+                "and secret would be sent in cleartext. Use an https:// URL "
+                "(or a localhost address for local development)."
+            )
+
         self._http = httpx.Client(
             base_url=self.site,
             headers={
@@ -28,9 +47,11 @@ class FrappeClient:
                 "User-Agent": "frappe-cli",
             },
             timeout=timeout,
-            # API calls never legitimately redirect. Following them would turn an
-            # auth failure that 302s to a login page into a spurious 2xx returning
-            # HTML. The download path opts back in per-request (object storage).
+            # Never follow redirects: a redirect could send the credential to a
+            # host we did not configure. We treat any 3xx as an error instead
+            # (see _reject_redirect), so the secret only ever reaches the site
+            # the user explicitly pointed us at. The download path opts back in
+            # per-request, since file URLs may point at object storage.
             follow_redirects=False,
         )
 
@@ -75,9 +96,7 @@ class FrappeClient:
         return self._handle(resp)
 
     def _handle(self, resp: httpx.Response) -> Any:
-        if resp.is_redirect:
-            raise FrappeError(_redirect_msg(resp), resp.status_code)
-
+        _reject_redirect(resp)
         body: Any = None
         if resp.content:
             try:
@@ -158,8 +177,7 @@ class FrappeClient:
         except httpx.HTTPError as e:
             raise FrappeError(f"Could not reach {self.site}: {e}") from e
 
-        if resp.is_redirect:
-            raise FrappeError(_redirect_msg(resp), resp.status_code)
+        _reject_redirect(resp)
         if resp.status_code >= 400:
             body = _safe_json(resp)
             raise FrappeError(extract_message(body, resp.status_code), resp.status_code)
@@ -246,15 +264,20 @@ class FrappeClient:
         )
 
 
-def _redirect_msg(resp: httpx.Response) -> str:
-    loc = resp.headers.get("location", "")
-    return (
-        f"Unexpected redirect ({resp.status_code})"
-        + (f" to {loc}" if loc else "")
-        + ". The site URL or credentials may be wrong — an auth failure can "
-        "redirect to a login page. Check the scheme (http vs https) and run "
-        "'frappe-cli auth whoami'."
-    )
+def _reject_redirect(resp: httpx.Response) -> None:
+    """Turn any redirect into a hard error rather than following it.
+
+    Following a redirect could hand the API key/secret to a host the user never
+    configured. We refuse and tell them to point the CLI straight at the API.
+    """
+    if resp.is_redirect:
+        location = resp.headers.get("location", "an unspecified location")
+        raise FrappeError(
+            f"{resp.request.url} redirected to {location}. Refusing to follow "
+            "redirects so credentials are never sent to a host you did not "
+            "configure. Point FRAPPE_SITE / --site directly at the API URL.",
+            resp.status_code,
+        )
 
 
 def _clean_params(params: dict | None) -> dict | None:

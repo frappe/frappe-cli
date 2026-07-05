@@ -6,7 +6,7 @@ from typer.testing import CliRunner
 
 from frappe_cli.cli import app
 
-BASE = "http://site.test"
+BASE = "http://localhost"
 runner = CliRunner()
 
 
