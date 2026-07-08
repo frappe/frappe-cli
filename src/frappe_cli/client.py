@@ -139,7 +139,10 @@ class FrappeClient:
             except (json.JSONDecodeError, ValueError):
                 messages.append(str(raw))
         for message in messages:
-            self._dbg(f"  [server] {message}")
+            # Strip ANSI/control characters so a hostile server cannot inject
+            # terminal escape sequences into the user's terminal.
+            safe = "".join(c for c in message if c >= " " or c in "\t\n")
+            self._dbg(f"  [server] {safe}")
 
     # --- core request ------------------------------------------------------
 
