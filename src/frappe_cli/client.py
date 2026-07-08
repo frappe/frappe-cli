@@ -132,12 +132,6 @@ class FrappeClient:
                 messages.append(str(entry.get("message", entry)))
             else:
                 messages.append(str(entry))
-        raw = body.get("_debug_messages")
-        if raw:
-            try:
-                messages.extend(str(m) for m in json.loads(raw))
-            except (json.JSONDecodeError, ValueError):
-                messages.append(str(raw))
         for message in messages:
             # Strip ANSI/control characters so a hostile server cannot inject
             # terminal escape sequences into the user's terminal.
