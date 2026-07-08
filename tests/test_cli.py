@@ -77,6 +77,8 @@ def test_doc_list_meta_driven_fields(env):
     assert "fields" in list_route.calls.last.request.url.params
     fields = list_route.calls.last.request.url.params["fields"]
     assert "description" in fields and "status" in fields
+    # sorts by creation desc by default
+    assert list_route.calls.last.request.url.params["order_by"] == "creation desc"
 
 
 @respx.mock

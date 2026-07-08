@@ -74,8 +74,8 @@ def list_docs(
         "--fields",
         help="Comma-separated fields, or '*' for all. Default: meta-driven.",
     ),
-    order_by: Optional[str] = typer.Option(
-        None, "--order-by", help="e.g. 'creation desc'."
+    order_by: str = typer.Option(
+        "creation desc", "--order-by", help="Sort order, e.g. 'creation desc'."
     ),
     limit: int = typer.Option(20, "--limit", help="Max rows."),
     all_: bool = typer.Option(False, "--all", help="Auto-paginate all matching rows."),
