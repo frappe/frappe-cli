@@ -8,6 +8,7 @@ could sit on this class without touching the CLI.
 from __future__ import annotations
 
 import json
+import sys
 import time
 from typing import Any, BinaryIO
 
@@ -27,6 +28,9 @@ DISCOVERY_MAX_RETRY_WAIT = 30.0  # never wait longer than this per attempt
 # Hosts for which plain HTTP is tolerated: the API secret never leaves the box.
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 
+# Never print more than this much of a request body in --debug (file uploads etc.)
+_DEBUG_BODY_LIMIT = 2000
+
 
 def _is_local_host(host: str) -> bool:
     host = (host or "").lower()
@@ -34,8 +38,16 @@ def _is_local_host(host: str) -> bool:
 
 
 class FrappeClient:
-    def __init__(self, site: str, token: str, timeout: float = DEFAULT_TIMEOUT):
+    def __init__(
+        self,
+        site: str,
+        token: str,
+        timeout: float = DEFAULT_TIMEOUT,
+        *,
+        debug: bool = False,
+    ):
         self.site = site.rstrip("/")
+        self.debug = debug
 
         # Refuse to put the API key/secret on the wire in cleartext. Plain HTTP
         # is only allowed for local development (localhost / *.localhost / loopback).
@@ -59,6 +71,13 @@ class FrappeClient:
             # httpx strips the Authorization header on cross-origin redirects,
             # so the credential is never handed to a host we did not configure.
             follow_redirects=True,
+            # --debug wires request/response logging straight into the transport,
+            # so every request (including retries and redirects) is traced.
+            event_hooks=(
+                {"request": [self._log_request], "response": [self._log_response]}
+                if debug
+                else {}
+            ),
         )
 
     def close(self) -> None:
@@ -69,6 +88,58 @@ class FrappeClient:
 
     def __exit__(self, *exc) -> None:
         self.close()
+
+    # --- debug tracing -----------------------------------------------------
+
+    @staticmethod
+    def _dbg(line: str) -> None:
+        print(line, file=sys.stderr)
+
+    def _log_request(self, request: httpx.Request) -> None:
+        self._dbg(f"→ {request.method} {request.url}")
+        for name, value in request.headers.items():
+            # Never leak the API key/secret, even to the local terminal.
+            if name.lower() == "authorization":
+                value = "token ***"
+            self._dbg(f"  {name}: {value}")
+        body = request.content
+        if body:
+            try:
+                text = body.decode("utf-8")
+            except UnicodeDecodeError:
+                self._dbg(f"  <{len(body)} bytes of binary body>")
+            else:
+                if len(text) > _DEBUG_BODY_LIMIT:
+                    text = text[:_DEBUG_BODY_LIMIT] + "… (truncated)"
+                self._dbg(f"  body: {text}")
+
+    def _log_response(self, response: httpx.Response) -> None:
+        self._dbg(f"← {response.status_code} {response.reason_phrase}")
+
+    def _emit_server_debug(self, body: Any) -> None:
+        """Surface server-side debug output (e.g. SQL) returned in the payload.
+
+        The v2 API adds a top-level ``debug`` list (SQL and friends) when a
+        request passes ``debug=1`` and the caller may see tracebacks (dev server
+        or a system user). ``request()`` unwraps ``data`` and drops the rest, so
+        pull the messages out here before they are lost.
+        """
+        if not self.debug or not isinstance(body, dict):
+            return
+        messages: list[str] = []
+        for entry in body.get("debug") or []:
+            if isinstance(entry, dict):
+                messages.append(str(entry.get("message", entry)))
+            else:
+                messages.append(str(entry))
+        raw = body.get("_debug_messages")
+        if raw:
+            try:
+                messages.extend(str(m) for m in json.loads(raw))
+            except (json.JSONDecodeError, ValueError):
+                messages.append(str(raw))
+        for message in messages:
+            self._dbg(f"  [server] {message}")
 
     # --- core request ------------------------------------------------------
 
@@ -123,6 +194,8 @@ class FrappeClient:
                 )
             raise FrappeError(extract_message(body, resp.status_code), resp.status_code)
 
+        self._emit_server_debug(body)
+
         if isinstance(body, dict) and "data" in body:
             return body["data"]
         return body
@@ -172,6 +245,9 @@ class FrappeClient:
             params["filters"] = json.dumps(filters)
         if order_by:
             params["order_by"] = order_by
+        if self.debug:
+            # Ask the server to echo the generated SQL (dev server / system user).
+            params["debug"] = "true"
 
         try:
             resp = self._http.get(
@@ -185,6 +261,7 @@ class FrappeClient:
             raise FrappeError(extract_message(body, resp.status_code), resp.status_code)
 
         body = resp.json()
+        self._emit_server_debug(body)
         return body.get("data", []), bool(body.get("has_next_page"))
 
     def get_document(self, doctype: str, name: str) -> dict:

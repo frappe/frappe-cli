@@ -25,9 +25,16 @@ _out_console = Console()
 class Ctx:
     """Holds run-wide output state, stashed on the Typer context object."""
 
-    def __init__(self, json_mode: bool, assume_yes: bool, profile: str | None = None):
+    def __init__(
+        self,
+        json_mode: bool,
+        assume_yes: bool,
+        profile: str | None = None,
+        debug: bool = False,
+    ):
         self.assume_yes = assume_yes
         self.profile = profile
+        self.debug = debug
         # --json forces JSON; otherwise JSON whenever stdout is not a TTY.
         self.json = json_mode or not sys.stdout.isatty()
         self.is_tty = sys.stdout.isatty()
