@@ -55,6 +55,11 @@ def _root(
     yes: bool = typer.Option(
         False, "--yes", "-y", help="Assume yes for confirmation prompts."
     ),
+    debug: bool = typer.Option(
+        False,
+        "--debug",
+        help="Print each HTTP request (and server SQL, where available) to stderr.",
+    ),
     version: bool = typer.Option(
         False,
         "--version",
@@ -64,14 +69,14 @@ def _root(
     ),
 ):
     """Global options apply to every subcommand."""
-    ctx.obj = Ctx(json_mode=json_out, assume_yes=yes, profile=site)
+    ctx.obj = Ctx(json_mode=json_out, assume_yes=yes, profile=site, debug=debug)
 
 
 # Global flags that must reach the top-level callback. We hoist them to the
 # front of argv so they work in gh-style trailing position too, e.g.
 #   frappe-cli doc list "Sales Invoice" --json
 # is rewritten to `frappe-cli --json doc list "Sales Invoice"`.
-_VALUELESS_GLOBALS = {"--json", "--yes", "-y"}
+_VALUELESS_GLOBALS = {"--json", "--yes", "-y", "--debug"}
 _VALUED_GLOBALS = {"-s", "--site"}
 
 

@@ -161,6 +161,41 @@ def test_cross_host_redirect_does_not_forward_credential():
     assert "authorization" not in landing.calls.last.request.headers
 
 
+@respx.mock
+def test_debug_requests_sql_and_emits_server_debug(capsys):
+    # With debug on, list requests ask the server for SQL (debug=true) and the
+    # returned debug messages are printed to stderr.
+    route = respx.get(f"{BASE}/api/v2/document/ToDo").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [{"name": "a"}],
+                "has_next_page": False,
+                "debug": [
+                    {"message": "SELECT `name` FROM `tabToDo` LIMIT 1"},
+                    {"message": "Execution time: 0.2 ms"},
+                ],
+            },
+        )
+    )
+    FrappeClient(BASE, "k:s", debug=True).list_documents("ToDo", fields=["name"])
+    assert route.calls.last.request.url.params["debug"] == "true"
+    err = capsys.readouterr().err
+    assert "→ GET" in err  # request traced
+    assert "authorization: token ***" in err  # credential redacted
+    assert "[server] SELECT `name` FROM `tabToDo` LIMIT 1" in err  # SQL surfaced
+
+
+@respx.mock
+def test_no_debug_param_or_output_by_default(capsys):
+    route = respx.get(f"{BASE}/api/v2/document/ToDo").mock(
+        return_value=httpx.Response(200, json={"data": [], "has_next_page": False})
+    )
+    client().list_documents("ToDo", fields=["name"])
+    assert "debug" not in route.calls.last.request.url.params
+    assert capsys.readouterr().err == ""
+
+
 def test_refuses_plain_http_for_remote_host():
     with pytest.raises(FrappeError) as ei:
         FrappeClient("http://erp.example.com", "k:s")

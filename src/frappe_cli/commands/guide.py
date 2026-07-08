@@ -91,6 +91,8 @@ RAW API (the escape hatch for anything the verbs above don't cover)
 TIPS FOR AGENTS
   - Pass --json (or just pipe) for machine-readable output everywhere.
   - Mutations refuse to run non-interactively without --yes.
+  - Debugging? --debug traces each request (and server SQL for `doc list`) to
+    stderr, leaving stdout/--json output clean.
   - Stuck on a name or field? Run `frappe-cli doctype show <DocType>` first.
   - `frappe-cli <command> --help` documents every flag.
 """

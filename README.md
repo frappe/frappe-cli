@@ -69,6 +69,9 @@ frappe-cli auth whoami
   pipe it to `jq`. Mutations refuse to run non-interactively without `--yes`.
 - Exit codes: `0` success, `1` failure, `2` usage error. Error detail goes to
   stderr as plain text (HTML stripped from server messages).
+- `--debug` traces every HTTP request (method, URL, headers with the credential
+  redacted) to stderr, and surfaces server-side SQL for endpoints that expose it
+  (e.g. `doc list`). It never touches stdout, so `--json` output stays clean.
 
 ## Commands
 

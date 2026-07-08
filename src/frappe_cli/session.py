@@ -13,7 +13,7 @@ def get_client(ctx: Ctx) -> FrappeClient:
         creds = config.resolve(ctx.profile, interactive=ctx.is_tty)
     except config.ConfigError as e:
         raise fail(str(e), 2)
-    return FrappeClient(creds.site, creds.token)
+    return FrappeClient(creds.site, creds.token, debug=ctx.debug)
 
 
 def run(fn):
