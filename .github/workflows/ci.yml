@@ -5,10 +5,6 @@ on:
     branches: [develop]
   pull_request:
     branches: [develop]
-  # Fired when a PR is added to the merge queue. Required checks MUST run on
-  # this event or the queue can never merge — see the integration job below,
-  # which runs the full suite only here.
-  merge_group:
   workflow_dispatch:
 
 jobs:
@@ -48,12 +44,12 @@ jobs:
           SKIP: no-commit-to-branch
         run: uvx pre-commit run --all-files --show-diff-on-failure
 
-  # The integration suite runs only inside the merge queue, so pull requests
-  # stay fast (unit tests + linters only). Its result is rolled up by the `ci`
+  # The integration suite runs on pull requests (and manual dispatches) but not
+  # on push, so branch pushes stay fast. Its result is rolled up by the `ci`
   # gate job below.
   integration:
     runs-on: ubuntu-latest
-    if: github.event_name == 'merge_group'
+    if: github.event_name != 'push'
 
     services:
       mariadb:
@@ -195,8 +191,8 @@ jobs:
   # Single roll-up status check — make THIS the only required check in the
   # ruleset. It aggregates the individual jobs so the required-checks list never
   # has to be maintained. `!cancelled()` lets it run even when integration is
-  # skipped (on PRs / pushes); it then fails unless every job that should have
-  # run for this event succeeded.
+  # skipped (on push); it then fails unless every job that should have run for
+  # this event succeeded.
   ci:
     name: ci
     runs-on: ubuntu-latest
@@ -211,9 +207,9 @@ jobs:
           [ "${{ needs.test.result }}" = "success" ] || { echo "::error::unit tests failed"; exit 1; }
           [ "${{ needs['pre-commit'].result }}" = "success" ] || { echo "::error::pre-commit failed"; exit 1; }
 
-          # Integration runs only in the merge queue; require it there, ignore
-          # its (skipped) result elsewhere.
-          if [ "${{ github.event_name }}" = "merge_group" ]; then
+          # Integration runs on everything except push; require it there, ignore
+          # its (skipped) result on push.
+          if [ "${{ github.event_name }}" != "push" ]; then
             [ "${{ needs.integration.result }}" = "success" ] || { echo "::error::integration tests failed"; exit 1; }
           fi
 
