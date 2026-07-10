@@ -50,6 +50,17 @@ def _is_local_host(host: str) -> bool:
     return host in _LOCAL_HOSTS or host.endswith(".localhost")
 
 
+def _auth_header(token_type: str, token: str) -> str:
+    """The Authorization header value for a credential.
+
+    ``"token"`` -> ``token key:secret`` (API key/secret).
+    ``"bearer"`` -> ``Bearer <access_token>`` (OAuth).
+    """
+    if token_type == "bearer":
+        return f"Bearer {token}"
+    return f"token {token}"
+
+
 class FrappeClient:
     def __init__(
         self,
@@ -59,25 +70,32 @@ class FrappeClient:
         *,
         debug: bool = False,
         read_only: bool = False,
+        token_type: str = "token",
+        on_unauthorized: Callable[[], str | None] | None = None,
     ):
         self.site = site.rstrip("/")
         self.debug = debug
         self.read_only = read_only
+        self._token = token
+        self._token_type = token_type
+        # Called on a 401 to obtain a fresh token (OAuth refresh). Returns the
+        # new access token, or None if it could not be refreshed.
+        self._on_unauthorized = on_unauthorized
 
-        # Refuse to put the API key/secret on the wire in cleartext. Plain HTTP
-        # is only allowed for local development (localhost / *.localhost / loopback).
+        # Refuse to put the credential on the wire in cleartext. Plain HTTP is
+        # only allowed for local development (localhost / *.localhost / loopback).
         parsed = httpx.URL(self.site)
         if parsed.scheme == "http" and not _is_local_host(parsed.host):
             raise FrappeError(
-                f"Refusing to talk to {self.site} over plain HTTP: the API key "
-                "and secret would be sent in cleartext. Use an https:// URL "
+                f"Refusing to talk to {self.site} over plain HTTP: the "
+                "credential would be sent in cleartext. Use an https:// URL "
                 "(or a localhost address for local development)."
             )
 
         self._http = httpx.Client(
             base_url=self.site,
             headers={
-                "Authorization": f"token {token}",
+                "Authorization": _auth_header(token_type, token),
                 "Accept": "application/json",
                 "User-Agent": "frappe-cli",
             },
@@ -113,9 +131,11 @@ class FrappeClient:
     def _log_request(self, request: httpx.Request) -> None:
         self._dbg(f"→ {request.method} {request.url}")
         for name, value in request.headers.items():
-            # Never leak the API key/secret, even to the local terminal.
+            # Never leak the credential, even to the local terminal. Keep the
+            # scheme (token / Bearer) so the auth mode is still visible.
             if name.lower() == "authorization":
-                value = "token ***"
+                scheme = value.split(" ", 1)[0] if " " in value else "token"
+                value = f"{scheme} ***"
             self._dbg(f"  {name}: {value}")
         body = request.content
         if body:
@@ -155,6 +175,33 @@ class FrappeClient:
 
     # --- core request ------------------------------------------------------
 
+    def _try_refresh(self) -> bool:
+        """Obtain a fresh token via the refresh callback and re-arm the header.
+
+        Returns True when a new token was installed, so the caller can replay
+        the request. A no-op (returns False) when there is no callback or the
+        refresh failed — the original 401 then surfaces unchanged.
+        """
+        if not self._on_unauthorized:
+            return False
+        new_token = self._on_unauthorized()
+        if not new_token:
+            return False
+        self._token = new_token
+        self._http.headers["Authorization"] = _auth_header(self._token_type, new_token)
+        return True
+
+    def _send(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        """Send a request, refreshing once and replaying on a 401.
+
+        Every HTTP call funnels through here so the refresh-retry applies
+        uniformly (documents, methods, discovery, auth checks).
+        """
+        resp = self._http.request(method, path, **kwargs)
+        if resp.status_code == 401 and self._try_refresh():
+            resp = self._http.request(method, path, **kwargs)
+        return resp
+
     def request(
         self,
         method: str,
@@ -177,7 +224,7 @@ class FrappeClient:
                 "writable profile, or pass -X GET for a whitelisted read method."
             )
         try:
-            resp = self._http.request(
+            resp = self._send(
                 method,
                 path,
                 params=_clean_params(params),
@@ -230,11 +277,8 @@ class FrappeClient:
         Avoids buffering the whole file in memory.
         """
         try:
-            with self._http.stream(
-                "GET",
-                path,
-                params=_clean_params(params),
-            ) as resp:
+            resp = self._send_stream(path, _clean_params(params))
+            try:
                 if resp.status_code >= 400:
                     resp.read()
                     body = _safe_json(resp)
@@ -246,8 +290,28 @@ class FrappeClient:
                     writer(chunk)
                     total += len(chunk)
                 return total
+            finally:
+                resp.close()
         except httpx.HTTPError as e:
             raise FrappeError(f"Could not reach {self.site}: {e}") from e
+
+    def _send_stream(self, path: str, params: dict[str, Any] | None) -> httpx.Response:
+        """Open a streaming GET, refreshing once and replaying on a 401.
+
+        Mirrors :meth:`_send` for the streaming case, where the body is consumed
+        lazily so the response can't be replayed after iteration begins.
+        """
+
+        def _open() -> httpx.Response:
+            return self._http.send(
+                self._http.build_request("GET", path, params=params), stream=True
+            )
+
+        resp = _open()
+        if resp.status_code == 401 and self._try_refresh():
+            resp.close()
+            resp = _open()
+        return resp
 
     # --- documents ---------------------------------------------------------
 
@@ -274,8 +338,8 @@ class FrappeClient:
             params["debug"] = "true"
 
         try:
-            resp = self._http.get(
-                f"/api/v2/document/{doctype}", params=_clean_params(params)
+            resp = self._send(
+                "GET", f"/api/v2/document/{doctype}", params=_clean_params(params)
             )
         except httpx.HTTPError as e:
             raise FrappeError(f"Could not reach {self.site}: {e}") from e
@@ -352,7 +416,7 @@ class FrappeClient:
     def get_logged_user(self) -> str:
         """Return the logged-in user, only when Frappe returned a trusted envelope."""
         try:
-            resp = self._http.get("/api/v2/method/frappe.auth.get_logged_user")
+            resp = self._send("GET", "/api/v2/method/frappe.auth.get_logged_user")
         except httpx.HTTPError as e:
             raise FrappeError(f"Could not reach {self.site}: {e}") from e
 
@@ -404,7 +468,7 @@ class FrappeClient:
         attempts = 0
         while True:
             try:
-                resp = self._http.get(path, params=_clean_params(params))
+                resp = self._send("GET", path, params=_clean_params(params))
             except httpx.HTTPError as e:
                 raise FrappeError(f"Could not reach {self.site}: {e}") from e
             if resp.status_code == 503 and attempts < DISCOVERY_MAX_RETRIES:

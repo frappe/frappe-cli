@@ -62,6 +62,18 @@ frappe-cli -s raven doc list "Raven Channel"           # pick a profile per comm
 frappe-cli auth whoami
 ```
 
+**3. OAuth (browser login).** Pass `--oauth` to log in through your browser
+instead of an API key/secret — no secret is ever stored, and the short-lived
+access token is refreshed automatically. The site registers the client for you
+when it supports dynamic client registration (Frappe v15+ does by default);
+otherwise pass a pre-registered public `--client-id`. Needs a terminal and a
+local browser, so it is a human path — headless / agent use stays on env vars.
+
+```sh
+frappe-cli auth login https://erp.example.com --oauth
+frappe-cli auth login https://erp.example.com --oauth --client-id <public-client-id>
+```
+
 ### Read-only profiles
 
 Mark a profile **read-only** so it can never mutate the site — any request that

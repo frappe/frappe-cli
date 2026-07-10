@@ -12,6 +12,7 @@ dependencies = [
     "httpx>=0.27",
     "rich>=13.0",
     "keyring>=24.0",
+    "authlib>=1.3",
 ]
 
 [project.urls]
@@ -40,6 +41,12 @@ packages = ["src/frappe_cli"]
 python_version = "3.10"
 files = ["src"]
 strict = true
+
+# Authlib ships no type information; treat its imports as untyped rather than
+# failing the strict build. Our own call sites stay fully typed around it.
+[[tool.mypy.overrides]]
+module = "authlib.*"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
