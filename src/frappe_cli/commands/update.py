@@ -24,6 +24,10 @@ from .. import __version__
 from ..output import confirm, err_console, fail, get_ctx, print_json
 
 _DIST = "frappe-cli"
+# Canonical source for git installs. Hardcoded rather than read back from
+# direct_url.json: the repo never moves, and the bare name resolves to an
+# unrelated package on PyPI.
+_GIT_SOURCE = "git+https://github.com/frappe/frappe-cli"
 
 
 @dataclass
@@ -59,29 +63,22 @@ def _installer(dist: importlib_metadata.Distribution) -> str:
     return text.strip().lower() if text else ""
 
 
-def _vcs_source(dist: importlib_metadata.Distribution) -> str | None:
-    """The pip-installable source spec for a VCS install, e.g. ``git+https://…``.
+def _is_vcs_install(dist: importlib_metadata.Distribution) -> bool:
+    """True if this was installed from a VCS (git) URL rather than a registry.
 
-    A package installed from a git URL is *not* on PyPI under this name (there
-    is an unrelated `frappe-cli` there), so upgrading it by bare name would pull
-    the wrong project. PEP 610's direct_url.json records the original VCS URL and
-    ref; we rebuild the ``git+<url>[@<ref>]`` spec so the upgrade re-pulls the
-    same source. Returns None for a plain (registry) install.
+    A git install is *not* on PyPI under this name (there is an unrelated
+    `frappe-cli` there), so upgrading it by bare name would pull the wrong
+    project — we upgrade from `_GIT_SOURCE` instead. PEP 610's direct_url.json
+    carries a `vcs_info` block for exactly these installs.
     """
     text = dist.read_text("direct_url.json")
     if not text:
-        return None
+        return False
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
-        return None
-    vcs = data.get("vcs_info")
-    url = data.get("url")
-    if not vcs or not url:
-        return None
-    spec = f"{vcs.get('vcs', 'git')}+{url}"
-    ref = vcs.get("requested_revision")
-    return f"{spec}@{ref}" if ref else spec
+        return False
+    return "vcs_info" in data
 
 
 def detect_backend(dist: importlib_metadata.Distribution) -> Backend | None:
@@ -98,10 +95,10 @@ def detect_backend(dist: importlib_metadata.Distribution) -> Backend | None:
     the name regardless.
     """
     installer = _installer(dist)
-    vcs = _vcs_source(dist)
+    vcs = _is_vcs_install(dist)
     # For pip-family installs, the thing to (re)install: the git source if this
     # was a VCS install, else the package name from the registry.
-    target = vcs or _DIST
+    target = _GIT_SOURCE if vcs else _DIST
     # Wrap the location in separators so `_has(location, "uv")` matches the
     # path *component* `uv`, not a substring of e.g. `myuvproject`.
     location = f"{os.sep}{dist.locate_file('')}{os.sep}"
