@@ -107,6 +107,7 @@ can still invoke a whitelisted *read* method if you force the verb with
 | `frappe-cli api <path>` | Raw v2 access: `frappe-cli api method/<path> -F key=value`. |
 | `frappe-cli guide` | Print a short, self-contained usage primer (no site/auth needed). |
 | `frappe-cli assistant [pi\|claude\|codex]` | Launch a CLI coding agent wired up as a Frappe assistant. |
+| `frappe-cli update` | Self-upgrade via the uv/pip backend it was installed with. |
 
 ### Filtering
 
