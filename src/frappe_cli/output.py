@@ -129,6 +129,17 @@ def emit_list(
     render_rows(rows, columns, title=title)
 
 
+def emit_source(source: str) -> None:
+    """Render Python source with syntax highlighting on stdout.
+
+    Uses a transparent background so the highlighted code blends with the
+    terminal theme instead of painting an opaque block.
+    """
+    from rich.syntax import Syntax
+
+    _out_console.print(Syntax(source, "python", background_color="default"))
+
+
 def emit_record(ctx: Ctx, record: Any, title: str | None = None) -> None:
     if ctx.json:
         print_json(record)
