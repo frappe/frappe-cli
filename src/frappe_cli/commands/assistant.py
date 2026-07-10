@@ -1,0 +1,291 @@
+"""``frappe-cli assistant`` — launch a CLI coding agent wired up for Frappe.
+
+A thin launcher (in the spirit of the ``barista`` wrapper): it starts a
+supported agent tool with a Frappe-flavoured system prompt, so the agent knows
+to drive ``frappe-cli`` and which authenticated sites it can reach.
+
+We never touch the working directory and never write into it. Instead each tool
+gets a private config directory under frappe-cli's own config folder
+(``~/.config/frappe/assistant/<tool>``); we point the tool's config-dir env var
+at it and populate it just before launch, then ``exec`` the tool so its TUI owns
+the terminal. That lets us:
+
+  * pi     — enable quietStartup (a settings-file-only option) without touching
+             the user's real pi config.
+  * codex  — supply a global AGENTS.md (codex has no --append-system-prompt),
+             while symlinking auth.json/config.toml so login/config still work.
+  * claude — just append the system prompt via its flag; no config dir needed.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable, Optional
+
+import typer
+
+from .. import config
+from ..output import err_console, fail
+from .guide import GUIDE
+
+# System prompt handed to the agent. Mirrors the ``barista`` recipe: the static
+# guide teaches the CLI surface, and the site list lets the agent map a human's
+# request ("the staging ERP") onto a concrete ``-s <profile>``.
+_SYSTEM_PROMPT_TEMPLATE = """\
+You are a Frappe assistant.
+
+Use `frappe-cli` whenever you need to inspect or operate on Frappe sites.
+
+Use this `frappe-cli guide` output to use `frappe-cli` effectively:
+
+{guide}
+
+Available authenticated Frappe sites from `frappe-cli auth list`:
+
+{sites}
+
+When the user refers to a site by name or description, map it to the \
+appropriate site from this list."""
+
+
+@dataclass
+class Launch:
+    """A fully planned launch: pure data, no side effects until materialised."""
+
+    argv: list[str]
+    env: dict[str, str] = field(default_factory=dict)
+    # Files to write into the tool's config dir: (relative name, content).
+    writes: list[tuple[str, str]] = field(default_factory=list)
+    # Symlinks to ensure in the config dir: (relative name, absolute target).
+    symlinks: list[tuple[str, Path]] = field(default_factory=list)
+
+
+@dataclass
+class Tool:
+    """A supported agent tool and how to launch it."""
+
+    name: str
+    binary: str  # executable to look up on PATH (usually == name)
+    # Plan a launch given the system prompt and this tool's private config dir.
+    # Pure: it may READ the filesystem but must not mutate it (dry-run relies on
+    # this). Actual writes/symlinks are described in the returned Launch.
+    build: Callable[[str, Path], Launch]
+
+
+# --- per-tool launch builders ---------------------------------------------
+
+
+def _pi_build(system_prompt: str, tool_dir: Path) -> Launch:
+    # pi supports genuine TUI minimisation. quietStartup is a settings-file
+    # option only (no flag), so we point pi's config dir at our own folder and
+    # drop a settings.json there with quietStartup on. We merge the user's
+    # existing settings first so their provider/model config is preserved.
+    settings = _read_pi_user_settings()
+    settings["quietStartup"] = True
+    argv = [
+        "pi",
+        "--name",
+        "Frappe assistant",
+        "--approve",
+        "--offline",
+        "--no-skills",
+        "--no-context-files",
+        "--append-system-prompt",
+        system_prompt,
+    ]
+    return Launch(
+        argv=argv,
+        env={"PI_CODING_AGENT_DIR": str(tool_dir)},
+        writes=[("settings.json", json.dumps(settings, indent=2) + "\n")],
+    )
+
+
+def _read_pi_user_settings() -> dict:
+    """The user's current pi settings, so we don't clobber provider/model prefs.
+
+    Reads from the real config dir (``$PI_CODING_AGENT_DIR`` if the user set it,
+    else ``~/.pi/agent``). Returns ``{}`` when there is nothing to read.
+    """
+    base = os.environ.get("PI_CODING_AGENT_DIR") or os.path.join(
+        os.path.expanduser("~"), ".pi", "agent"
+    )
+    path = Path(base) / "settings.json"
+    try:
+        data = json.loads(path.read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _codex_build(system_prompt: str, tool_dir: Path) -> Launch:
+    # codex has no --append-system-prompt. It DOES read a global AGENTS.md from
+    # $CODEX_HOME, so we point CODEX_HOME at our folder, write AGENTS.md there,
+    # and symlink auth.json/config.toml back to the real codex home so the user
+    # stays logged in and keeps their config.
+    real_home = Path(
+        os.environ.get("CODEX_HOME") or os.path.join(os.path.expanduser("~"), ".codex")
+    )
+    symlinks = [
+        (name, real_home / name)
+        for name in ("auth.json", "config.toml")
+        if (real_home / name).exists()
+    ]
+    return Launch(
+        argv=["codex"],
+        env={"CODEX_HOME": str(tool_dir)},
+        writes=[("AGENTS.md", system_prompt + "\n")],
+        symlinks=symlinks,
+    )
+
+
+def _claude_build(system_prompt: str, tool_dir: Path) -> Launch:
+    # claude's chrome is largely fixed; --append-system-prompt is the one lever
+    # that matters. Permissions are left at the default (interactive). No config
+    # dir needed.
+    return Launch(argv=["claude", "--append-system-prompt", system_prompt])
+
+
+# Order matters: it decides the auto-pick when no tool is named.
+TOOLS: list[Tool] = [
+    Tool(name="pi", binary="pi", build=_pi_build),
+    Tool(name="claude", binary="claude", build=_claude_build),
+    Tool(name="codex", binary="codex", build=_codex_build),
+]
+_TOOLS_BY_NAME = {t.name: t for t in TOOLS}
+
+
+# --- system prompt ----------------------------------------------------------
+
+
+def _render_sites() -> str:
+    """Plain-text listing of stored profiles for the system prompt.
+
+    Built in-process (no subprocess); intentionally terse, one site per line.
+    """
+    try:
+        profiles, default = config.list_profiles()
+    except config.ConfigError:
+        profiles, default = {}, None
+    if not profiles:
+        return "(no profiles stored; the human must run `frappe-cli auth login`)"
+    lines = []
+    for name, info in profiles.items():
+        parts = [f"- {name}: {info.get('site', '')}"]
+        desc = info.get("description", "")
+        if desc:
+            parts.append(f"— {desc}")
+        tags = []
+        if name == default:
+            tags.append("default")
+        if info.get("read_only"):
+            tags.append("read-only")
+        if tags:
+            parts.append(f"[{', '.join(tags)}]")
+        lines.append(" ".join(parts))
+    return "\n".join(lines)
+
+
+def _system_prompt() -> str:
+    return _SYSTEM_PROMPT_TEMPLATE.format(guide=GUIDE, sites=_render_sites())
+
+
+# --- launch plumbing --------------------------------------------------------
+
+
+def _assistant_dir(tool_name: str) -> Path:
+    return config.config_dir() / "assistant" / tool_name
+
+
+def _pick_tool(name: Optional[str]) -> Tool:
+    if name is not None:
+        tool = _TOOLS_BY_NAME.get(name)
+        if tool is None:
+            supported = ", ".join(_TOOLS_BY_NAME)
+            raise fail(f"Unsupported tool: {name}. Supported: {supported}.", 2)
+        return tool
+    # Auto-pick: first supported tool that is actually installed.
+    for tool in TOOLS:
+        if shutil.which(tool.binary):
+            return tool
+    supported = ", ".join(t.binary for t in TOOLS)
+    raise fail(
+        f"No supported agent tool found on PATH. Install one of: {supported}.", 127
+    )
+
+
+def _materialize(launch: Launch, tool_dir: Path) -> None:
+    """Apply the launch's planned filesystem side effects."""
+    tool_dir.mkdir(parents=True, exist_ok=True)
+    for name, content in launch.writes:
+        (tool_dir / name).write_text(content)
+    for name, target in launch.symlinks:
+        link = tool_dir / name
+        if link.is_symlink():
+            if os.readlink(link) == str(target):
+                continue
+            link.unlink()
+        elif link.exists():
+            link.unlink()
+        link.symlink_to(target)
+
+
+def assistant(
+    ctx: typer.Context,
+    tool: Optional[str] = typer.Argument(
+        None,
+        help="Agent tool to launch: pi, claude or codex. Defaults to the first "
+        "one installed.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print what would run (env, files, command) and exit, without "
+        "launching the tool or writing anything.",
+    ),
+):
+    """Launch a CLI coding agent wired up as a Frappe assistant.
+
+    Starts a supported agent tool (pi, claude or codex) with a Frappe system
+    prompt, so it drives `frappe-cli` against your authenticated sites. Anything
+    after `--` is passed straight through to the tool, e.g.:
+
+    frappe-cli assistant pi -- "list overdue invoices on staging"
+    """
+    chosen = _pick_tool(tool)
+
+    if not shutil.which(chosen.binary):
+        raise fail(f"'{chosen.binary}' not found on PATH.", 127)
+    # The agent shells out to `frappe-cli`; refuse to launch if it can't.
+    if not shutil.which("frappe-cli"):
+        raise fail(
+            "'frappe-cli' not found on PATH; the assistant needs it to reach "
+            "your sites.",
+            127,
+        )
+
+    tool_dir = _assistant_dir(chosen.name)
+    launch = chosen.build(_system_prompt(), tool_dir)
+    argv = [*launch.argv, *ctx.args]
+
+    if dry_run:
+        for key in sorted(launch.env):
+            typer.echo(f"env: {key}={launch.env[key]}")
+        for name, _ in launch.writes:
+            typer.echo(f"write: {tool_dir / name}")
+        for name, target in launch.symlinks:
+            typer.echo(f"symlink: {tool_dir / name} -> {target}")
+        # argv as a JSON array on one line: the system prompt contains newlines,
+        # so a shell-quoted string would span lines and defeat parsing.
+        typer.echo("cmd: " + json.dumps(argv))
+        return
+
+    _materialize(launch, tool_dir)
+
+    err_console.print(f"[dim]starting {chosen.name} as a Frappe assistant…[/dim]")
+    # Hand the terminal over to the agent's TUI. execvpe replaces this process,
+    # so nothing here runs afterwards.
+    os.execvpe(argv[0], argv, {**os.environ, **launch.env})
