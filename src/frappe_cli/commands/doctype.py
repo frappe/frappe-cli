@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 
+from ..client import Document
 from ..errors import FrappeError
 from ..output import emit_list, emit_record, fail, get_ctx, print_json
 from ..session import get_client
@@ -23,11 +24,11 @@ def list_doctypes(
     ),
     custom: bool = typer.Option(False, "--custom", help="Only custom DocTypes."),
     limit: int = typer.Option(10000, "--limit", help="Max rows."),
-):
+) -> None:
     """List DocTypes on the site."""
     c = get_ctx(ctx)
     client = get_client(c)
-    filters = {}
+    filters: dict[str, Any] = {}
     if filter_module:
         filters["module"] = filter_module
     if custom:
@@ -45,7 +46,7 @@ def list_doctypes(
     emit_list(c, rows, ["name", "module", "issingle", "istable", "custom"])
 
 
-def _summarize_field(df: dict) -> dict:
+def _summarize_field(df: Document) -> Document:
     return {
         "fieldname": df.get("fieldname"),
         "label": df.get("label"),
@@ -61,7 +62,7 @@ def show_doctype(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="DocType name."),
     raw: bool = typer.Option(False, "--raw", help="Print the full unprocessed meta."),
-):
+) -> None:
     """Show fields, types, link targets, child tables and permissions."""
     c = get_ctx(ctx)
     client = get_client(c)

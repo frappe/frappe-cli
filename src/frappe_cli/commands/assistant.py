@@ -225,7 +225,7 @@ def assistant(
         help="Print what would run (env, files, command) and exit, without "
         "launching the tool or writing anything.",
     ),
-):
+) -> None:
     """Launch a CLI coding agent wired up as a Frappe assistant.
 
     Starts a supported agent tool (pi, claude or codex) with a Frappe system

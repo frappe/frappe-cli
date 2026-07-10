@@ -16,6 +16,8 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
+from typing import Any, cast
 
 KEYRING_SERVICE = "frappe-cli"
 
@@ -56,7 +58,7 @@ def config_path() -> Path:
     return config_dir() / "config.json"
 
 
-def _load() -> dict:
+def _load() -> dict[str, Any]:
     path = config_path()
     if not path.exists():
         return {"default": None, "profiles": {}}
@@ -66,10 +68,10 @@ def _load() -> dict:
         raise ConfigError(f"Could not read config at {path}: {e}") from e
     data.setdefault("default", None)
     data.setdefault("profiles", {})
-    return data
+    return cast("dict[str, Any]", data)
 
 
-def _save(data: dict) -> None:
+def _save(data: dict[str, Any]) -> None:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2) + "\n")
@@ -83,7 +85,7 @@ def _save(data: dict) -> None:
 # --- keyring helpers -------------------------------------------------------
 
 
-def _keyring():
+def _keyring() -> ModuleType:
     try:
         import keyring
 
@@ -110,7 +112,7 @@ def _store_secret(profile: str, token: str) -> None:
 def _read_secret(profile: str) -> str | None:
     kr = _keyring()
     try:
-        return kr.get_password(KEYRING_SERVICE, profile)
+        return cast("str | None", kr.get_password(KEYRING_SERVICE, profile))
     except Exception as e:
         raise ConfigError(
             f"Could not read credentials from the OS keyring ({e}). "
@@ -130,7 +132,7 @@ def _delete_secret(profile: str) -> None:
 # --- public profile API ----------------------------------------------------
 
 
-def list_profiles() -> tuple[dict[str, dict], str | None]:
+def list_profiles() -> tuple[dict[str, dict[str, Any]], str | None]:
     data = _load()
     return data["profiles"], data["default"]
 
@@ -146,7 +148,7 @@ def add_profile(
 ) -> None:
     data = _load()
     _store_secret(name, f"{api_key}:{api_secret}")
-    entry: dict = {"site": site}
+    entry: dict[str, Any] = {"site": site}
     if description:
         entry["description"] = description
     if read_only:

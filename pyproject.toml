@@ -23,7 +23,7 @@ frappe-cli = "frappe_cli.cli:main"
 fr = "frappe_cli.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "respx>=0.21"]
+dev = ["pytest>=8.0", "respx>=0.21", "mypy>=1.13"]
 
 [build-system]
 requires = ["hatchling"]
@@ -31,6 +31,15 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/frappe_cli"]
+
+[tool.mypy]
+# The package source is type-checked in strict mode: any regression in coverage
+# (a missing annotation, an untyped call, an implicit Any) fails the build. Tests
+# are intentionally excluded — they exercise error paths and monkeypatching where
+# full annotation coverage costs more than it buys.
+python_version = "3.10"
+files = ["src"]
+strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

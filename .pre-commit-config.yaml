@@ -32,8 +32,25 @@ repos:
       - id: ruff-format
         name: "Run ruff formatter"
 
+  # mypy runs through uv so it resolves against the locked project + typed deps
+  # (typer, httpx, rich…). An isolated pre-commit env wouldn't see them and would
+  # drown in false import errors. It reads its config (strict, files = ["src"])
+  # from pyproject.toml, so it types the whole package regardless of staged files.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: "Run mypy (strict)"
+        entry: uv run --extra dev mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: true
+
 
 ci:
     autoupdate_schedule: weekly
-    skip: []
+    # `uv` isn't available on the hosted pre-commit.ci runners, so the local
+    # mypy hook can't run there. It still runs locally and in the GitHub Actions
+    # `pre-commit` job (which installs uv) — the check that actually gates merges.
+    skip: [mypy]
     submodules: false

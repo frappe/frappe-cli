@@ -27,7 +27,7 @@ def upload(
         None, "--fieldname", help="Attach to this field."
     ),
     private: bool = typer.Option(False, "--private", help="Mark the file private."),
-):
+) -> None:
     """Upload a file, optionally attaching it to a document."""
     c = get_ctx(ctx)
     if not os.path.isfile(path):
@@ -66,7 +66,7 @@ def download(
         "-o",
         help="Output path. Default: derived filename, or '-' for stdout.",
     ),
-):
+) -> None:
     """Download a file by File name or by file URL."""
     c = get_ctx(ctx)
     client = get_client(c)

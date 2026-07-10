@@ -10,11 +10,20 @@ from __future__ import annotations
 import json
 import sys
 import time
-from typing import Any, BinaryIO
+from collections.abc import Callable
+from typing import Any, BinaryIO, cast
 
 import httpx
 
 from .errors import FrappeError, extract_message
+
+# A Frappe document (or any JSON object) as returned by the REST API: a mapping
+# keyed by fieldname. The values are unchecked server JSON, hence ``Any``.
+Document = dict[str, Any]
+
+# Query filters accepted by the list endpoints: either the list-of-lists form
+# (``[["field", "op", value], ...]``) or the dict shorthand (``{"field": value}``).
+Filters = list[Any] | dict[str, Any]
 
 DEFAULT_TIMEOUT = 60.0
 
@@ -92,7 +101,7 @@ class FrappeClient:
     def __enter__(self) -> "FrappeClient":
         return self
 
-    def __exit__(self, *exc) -> None:
+    def __exit__(self, *exc: object) -> None:
         self.close()
 
     # --- debug tracing -----------------------------------------------------
@@ -151,10 +160,10 @@ class FrappeClient:
         method: str,
         path: str,
         *,
-        params: dict | None = None,
+        params: dict[str, Any] | None = None,
         json_body: Any = None,
-        data: dict | None = None,
-        files: dict | None = None,
+        data: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
     ) -> Any:
         """Make a request and return the unwrapped ``data`` payload.
 
@@ -209,7 +218,13 @@ class FrappeClient:
             return body["data"]
         return body
 
-    def stream_download(self, path: str, writer, *, params: dict | None = None) -> int:
+    def stream_download(
+        self,
+        path: str,
+        writer: Callable[[bytes], object],
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> int:
         """Stream a GET body to ``writer(bytes)`` in chunks; return total bytes.
 
         Avoids buffering the whole file in memory.
@@ -241,11 +256,11 @@ class FrappeClient:
         doctype: str,
         *,
         fields: list[str] | None = None,
-        filters: list | dict | None = None,
+        filters: Filters | None = None,
         order_by: str | None = None,
         start: int = 0,
         limit: int = 20,
-    ) -> tuple[list[dict], bool]:
+    ) -> tuple[list[Document], bool]:
         """Return ``(rows, has_next_page)``."""
         params: dict[str, Any] = {"start": start, "limit": limit}
         if fields:
@@ -271,24 +286,33 @@ class FrappeClient:
 
         body = resp.json()
         self._emit_server_debug(body)
-        return body.get("data", []), bool(body.get("has_next_page"))
+        rows = cast("list[Document]", body.get("data", []))
+        return rows, bool(body.get("has_next_page"))
 
-    def get_document(self, doctype: str, name: str) -> dict:
-        return self.request("GET", f"/api/v2/document/{doctype}/{name}/")
+    def get_document(self, doctype: str, name: str) -> Document:
+        return cast(
+            Document, self.request("GET", f"/api/v2/document/{doctype}/{name}/")
+        )
 
-    def create_document(self, doctype: str, data: dict) -> dict:
-        return self.request("POST", f"/api/v2/document/{doctype}", json_body=data)
+    def create_document(self, doctype: str, data: Document) -> Document:
+        return cast(
+            Document,
+            self.request("POST", f"/api/v2/document/{doctype}", json_body=data),
+        )
 
-    def update_document(self, doctype: str, name: str, data: dict) -> dict:
-        return self.request(
-            "PATCH", f"/api/v2/document/{doctype}/{name}/", json_body=data
+    def update_document(self, doctype: str, name: str, data: Document) -> Document:
+        return cast(
+            Document,
+            self.request(
+                "PATCH", f"/api/v2/document/{doctype}/{name}/", json_body=data
+            ),
         )
 
     def delete_document(self, doctype: str, name: str) -> Any:
         return self.request("DELETE", f"/api/v2/document/{doctype}/{name}/")
 
     def run_doc_method(
-        self, doctype: str, name: str, method: str, params: dict | None = None
+        self, doctype: str, name: str, method: str, params: dict[str, Any] | None = None
     ) -> Any:
         return self.request(
             "POST",
@@ -298,14 +322,16 @@ class FrappeClient:
 
     # --- collection --------------------------------------------------------
 
-    def get_meta(self, doctype: str) -> dict:
-        return self.request("GET", f"/api/v2/doctype/{doctype}/meta")
+    def get_meta(self, doctype: str) -> Document:
+        return cast(Document, self.request("GET", f"/api/v2/doctype/{doctype}/meta"))
 
-    def get_count(self, doctype: str, filters: list | dict | None = None) -> int:
-        params = {}
+    def get_count(self, doctype: str, filters: Filters | None = None) -> int:
+        params: dict[str, Any] = {}
         if filters:
             params["filters"] = json.dumps(filters)
-        return self.request("GET", f"/api/v2/doctype/{doctype}/count", params=params)
+        return cast(
+            int, self.request("GET", f"/api/v2/doctype/{doctype}/count", params=params)
+        )
 
     # --- methods -----------------------------------------------------------
 
@@ -313,7 +339,7 @@ class FrappeClient:
         self,
         method: str,
         *,
-        params: dict | None = None,
+        params: dict[str, Any] | None = None,
         http_method: str = "POST",
     ) -> Any:
         path = f"/api/v2/method/{method}"
@@ -338,7 +364,7 @@ class FrappeClient:
                 body = resp.text
 
         if resp.status_code >= 400:
-            return self._handle(resp)
+            return cast(str, self._handle(resp))
 
         self._emit_server_debug(body)
 
@@ -367,7 +393,7 @@ class FrappeClient:
                 wait = DISCOVERY_FALLBACK_BACKOFF
         return max(0.0, min(wait, DISCOVERY_MAX_RETRY_WAIT))
 
-    def _discovery_get(self, path: str, *, params: dict | None = None) -> Any:
+    def _discovery_get(self, path: str, *, params: dict[str, Any] | None = None) -> Any:
         """GET a discovery endpoint, retrying transient 503s on a cold cache.
 
         Retries are capped so a command never hangs. A persistent 503 surfaces
@@ -420,7 +446,7 @@ class FrappeClient:
         docname: str | None = None,
         fieldname: str | None = None,
         folder: str = "Home",
-    ) -> dict:
+    ) -> Document:
         data: dict[str, Any] = {
             "is_private": 1 if is_private else 0,
             "folder": folder,
@@ -431,15 +457,20 @@ class FrappeClient:
             data["docname"] = docname
         if fieldname:
             data["fieldname"] = fieldname
-        return self.request(
-            "POST",
-            "/api/v2/method/upload_file",
-            data=data,
-            files={"file": (filename, fileobj)},
+        return cast(
+            Document,
+            self.request(
+                "POST",
+                "/api/v2/method/upload_file",
+                data=data,
+                files={"file": (filename, fileobj)},
+            ),
         )
 
 
-def _clean_params(params: dict | None) -> dict | None:
+def _clean_params(
+    params: dict[str, Any] | None,
+) -> dict[str, Any] | None:
     if not params:
         return params
     return {k: v for k, v in params.items() if v is not None}

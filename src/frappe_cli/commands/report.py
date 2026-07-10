@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 
@@ -15,14 +15,14 @@ from ..session import get_client
 app = typer.Typer(no_args_is_help=True, help="Run reports.")
 
 
-def _filters_to_dict(filters: list[str], filters_json: Optional[str]) -> dict:
+def _filters_to_dict(filters: list[str], filters_json: Optional[str]) -> dict[str, Any]:
     """Reports take filters as a flat {field: value} dict."""
     if filters_json:
         parsed = helpers.parse_filters_json(filters_json)
         if not isinstance(parsed, dict):
             raise fail("--filters-json for reports must be a JSON object.", 2)
         return parsed
-    out: dict = {}
+    out: dict[str, Any] = {}
     for token in filters:
         field, op, value = helpers.parse_filter(token)
         if op != "=":
@@ -35,7 +35,7 @@ def _filters_to_dict(filters: list[str], filters_json: Optional[str]) -> dict:
     return out
 
 
-def _column_keys(columns: list) -> list[str]:
+def _column_keys(columns: list[Any]) -> list[str]:
     """Return field keys from a report's column metadata."""
     keys: list[str] = []
     for col in columns:
@@ -57,7 +57,7 @@ def run_report(
     filters_json: Optional[str] = typer.Option(
         None, "--filters-json", help="Filters as JSON."
     ),
-):
+) -> None:
     """Run a report and print its rows."""
     c = get_ctx(ctx)
     client = get_client(c)
@@ -77,7 +77,7 @@ def run_report(
     keys = _column_keys(columns)
 
     # Normalize list-rows into dicts keyed by column fieldname.
-    norm: list[dict] = []
+    norm: list[dict[str, Any]] = []
     for row in rows:
         if isinstance(row, dict):
             norm.append(row)

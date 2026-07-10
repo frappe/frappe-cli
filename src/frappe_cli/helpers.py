@@ -24,7 +24,7 @@ _LAYOUT_FIELDTYPES = {
 }
 
 
-def parse_filter(token: str) -> list:
+def parse_filter(token: str) -> list[Any]:
     """Parse a single ``-f`` token into ``[field, op, value]``.
 
     Supports symbolic operators (``=``, ``!=``, ``>``, ``<``, ``>=``, ``<=``)
@@ -54,7 +54,7 @@ def parse_filter(token: str) -> list:
     )
 
 
-def parse_filters(tokens: list[str]) -> list:
+def parse_filters(tokens: list[str]) -> list[Any]:
     return [parse_filter(t) for t in tokens]
 
 
@@ -102,7 +102,7 @@ def _has_leading_zero(value: str) -> bool:
     return len(digits) > 1 and digits[0] == "0" and digits.isdigit()
 
 
-def parse_set(assignments: list[str]) -> dict:
+def parse_set(assignments: list[str]) -> dict[str, Any]:
     """Parse repeated ``--set field=value`` into a dict of scalars."""
     out: dict[str, Any] = {}
     for item in assignments:
@@ -113,12 +113,12 @@ def parse_set(assignments: list[str]) -> dict:
     return out
 
 
-def parse_method_params(params: list[str]) -> dict:
+def parse_method_params(params: list[str]) -> dict[str, Any]:
     """Parse gh-style ``-F key=value`` method parameters."""
     return parse_set(params)
 
 
-def default_fields(meta: dict) -> list[str]:
+def default_fields(meta: dict[str, Any]) -> list[str]:
     """Compute Desk-like default list columns from DocType meta.
 
     name + title field + ``in_list_view`` columns.

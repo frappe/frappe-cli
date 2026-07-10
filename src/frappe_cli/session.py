@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import TypeVar
+
 from . import config
 from .client import FrappeClient
 from .errors import FrappeError
 from .output import Ctx, fail
+
+T = TypeVar("T")
 
 
 def get_client(ctx: Ctx) -> FrappeClient:
@@ -18,7 +23,7 @@ def get_client(ctx: Ctx) -> FrappeClient:
     )
 
 
-def run(fn):
+def run(fn: Callable[[], T]) -> T:
     """Wrap a command body so FrappeError surfaces as a clean exit-1."""
     try:
         return fn()

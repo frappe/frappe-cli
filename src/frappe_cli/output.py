@@ -96,7 +96,9 @@ def _scalar(value: Any) -> str:
     return str(value)
 
 
-def render_rows(rows: list[dict], columns: list[str], title: str | None = None) -> None:
+def render_rows(
+    rows: list[dict[str, Any]], columns: list[str], title: str | None = None
+) -> None:
     """Render a list of dicts as a rich table on stdout."""
     table = Table(title=title, header_style="bold cyan", show_lines=False)
     for col in columns:
@@ -108,7 +110,7 @@ def render_rows(rows: list[dict], columns: list[str], title: str | None = None) 
         err_console.print("[dim]No records.[/dim]")
 
 
-def render_record(record: dict, title: str | None = None) -> None:
+def render_record(record: dict[str, Any], title: str | None = None) -> None:
     """Render a single document as a two-column key/value table."""
     table = Table(title=title, header_style="bold cyan", show_header=False, box=None)
     table.add_column("field", style="bold")
@@ -119,7 +121,10 @@ def render_record(record: dict, title: str | None = None) -> None:
 
 
 def emit_list(
-    ctx: Ctx, rows: list[dict], columns: list[str] | None, title: str | None = None
+    ctx: Ctx,
+    rows: list[dict[str, Any]],
+    columns: list[str] | None,
+    title: str | None = None,
 ) -> None:
     if ctx.json:
         print_json(rows)
