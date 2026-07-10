@@ -155,7 +155,7 @@ def test_guide_runs_without_auth():
     # No env / profile configured: guide must still work (no client, no network).
     result = runner.invoke(app, ["guide"])
     assert result.exit_code == 0
-    assert "AUTHENTICATION" in result.stdout
+    assert "SITE ACCESS" in result.stdout
     assert "frappe-cli doctype show" in result.stdout
     assert "frappe-cli api" in result.stdout
 
@@ -163,9 +163,10 @@ def test_guide_runs_without_auth():
 def test_guide_tells_agents_not_to_touch_credentials():
     result = runner.invoke(app, ["guide"])
     assert result.exit_code == 0
-    # The guide must steer agents away from mutating env / auto-login.
-    assert "Do NOT set, export or otherwise mutate" in result.stdout
-    assert "Do NOT run `frappe-cli auth login`" in result.stdout
+    # Authentication is a human concern; the guide only states the boundary.
+    assert "Do not run auth commands" in result.stdout
+    assert "modify FRAPPE_*" in result.stdout
+    assert "auth login" not in result.stdout
 
 
 def test_login_refuses_non_interactive():
