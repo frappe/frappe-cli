@@ -20,6 +20,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, cast
 
 import typer
 
@@ -233,14 +234,14 @@ def _cache_file() -> Path:
     return config_dir() / _CHECK_CACHE
 
 
-def _load_cache() -> dict:
+def _load_cache() -> dict[str, Any]:
     try:
-        return json.loads(_cache_file().read_text())
+        return cast("dict[str, Any]", json.loads(_cache_file().read_text()))
     except (OSError, json.JSONDecodeError):
         return {}
 
 
-def _save_cache(data: dict) -> None:
+def _save_cache(data: dict[str, Any]) -> None:
     try:
         path = _cache_file()
         path.parent.mkdir(parents=True, exist_ok=True)

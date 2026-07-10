@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 
@@ -49,11 +49,11 @@ def api(
     input_file: Optional[str] = typer.Option(
         None, "--input", help="JSON request body file ('-' for stdin)."
     ),
-):
+) -> None:
     """Make a raw request to /api/v2/<path>."""
     c = get_ctx(ctx)
 
-    params: dict = {}
+    params: dict[str, Any] = {}
     if fields:
         params.update(helpers.parse_method_params(fields))
     for item in raw_fields:

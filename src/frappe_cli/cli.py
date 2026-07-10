@@ -49,7 +49,7 @@ app.command(
 )(assistant_cmd.assistant)
 
 
-def _version_callback(value: bool):
+def _version_callback(value: bool) -> None:
     if value:
         typer.echo(f"frappe-cli {__version__}")
         raise typer.Exit()
@@ -79,7 +79,7 @@ def _root(
         is_eager=True,
         help="Show version.",
     ),
-):
+) -> None:
     """Global options apply to every subcommand."""
     ctx.obj = Ctx(json_mode=json_out, assume_yes=yes, profile=site, debug=debug)
     # Passive, best-effort "a newer version exists" nudge. No-op in JSON/piped

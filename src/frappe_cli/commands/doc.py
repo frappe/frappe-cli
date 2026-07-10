@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Optional
+from typing import Any, Optional, cast
 
 import typer
 
 from .. import helpers
+from ..client import Document, Filters, FrappeClient
 from ..errors import FrappeError
 from ..output import (
     Ctx,
@@ -25,21 +26,21 @@ app = typer.Typer(
 )
 
 
-def _read_stdin_json() -> Optional[dict]:
+def _read_stdin_json() -> Optional[Document]:
     if sys.stdin.isatty():
         return None
     raw = sys.stdin.read().strip()
     if not raw:
         return None
     try:
-        return json.loads(raw)
+        return cast(Document, json.loads(raw))
     except json.JSONDecodeError as e:
         raise fail(f"stdin is not valid JSON: {e}", 2)
 
 
-def _load_input(input_file: Optional[str], set_values: list[str]) -> dict:
+def _load_input(input_file: Optional[str], set_values: list[str]) -> Document:
     """Merge a JSON document (stdin or --input) with --set scalars."""
-    data: dict = {}
+    data: dict[str, Any] = {}
     if input_file:
         try:
             with open(input_file) as f:
@@ -79,7 +80,7 @@ def list_docs(
     ),
     limit: int = typer.Option(20, "--limit", help="Max rows."),
     all_: bool = typer.Option(False, "--all", help="Auto-paginate all matching rows."),
-):
+) -> None:
     """List documents of a DocType."""
     c = get_ctx(ctx)
     client = get_client(c)
@@ -111,8 +112,15 @@ def list_docs(
 
 
 def _fetch(
-    client, doctype, field_list, flt, order_by, limit, all_, c: Ctx
-) -> list[dict]:
+    client: FrappeClient,
+    doctype: str,
+    field_list: list[str] | None,
+    flt: Filters | None,
+    order_by: str,
+    limit: int,
+    all_: bool,
+    c: Ctx,
+) -> list[Document]:
     if not all_:
         rows, _ = client.list_documents(
             doctype,
@@ -123,7 +131,7 @@ def _fetch(
         )
         return rows
 
-    rows: list[dict] = []
+    all_rows: list[Document] = []
     page = 200
     start = 0
     while True:
@@ -135,15 +143,15 @@ def _fetch(
             start=start,
             limit=page,
         )
-        rows.extend(batch)
+        all_rows.extend(batch)
         if not c.json or c.is_tty:
-            err_console.print(f"[dim]fetched {len(rows)}…[/dim]", end="\r")
+            err_console.print(f"[dim]fetched {len(all_rows)}…[/dim]", end="\r")
         if not has_next or not batch:
             break
         start += page
-    if rows and (not c.json or c.is_tty):
-        err_console.print(f"[dim]fetched {len(rows)} total.[/dim]")
-    return rows
+    if all_rows and (not c.json or c.is_tty):
+        err_console.print(f"[dim]fetched {len(all_rows)} total.[/dim]")
+    return all_rows
 
 
 @app.command("get")
@@ -151,7 +159,7 @@ def get_doc(
     ctx: typer.Context,
     doctype: str = typer.Argument(...),
     name: str = typer.Argument(...),
-):
+) -> None:
     """Fetch a single document by name."""
     c = get_ctx(ctx)
     client = get_client(c)
@@ -172,7 +180,7 @@ def create_doc(
     input_file: Optional[str] = typer.Option(
         None, "--input", help="JSON document file (for child tables / nesting)."
     ),
-):
+) -> None:
     """Create a document. Reads JSON from stdin when piped."""
     c = get_ctx(ctx)
     data = _load_input(input_file, set_values)
@@ -201,7 +209,7 @@ def update_doc(
     force: bool = typer.Option(
         False, "--force", help="Skip optimistic-concurrency check (overwrite)."
     ),
-):
+) -> None:
     """Update a document. Optimistic by default — fails on concurrent edits."""
     c = get_ctx(ctx)
     data = _load_input(input_file, set_values)
@@ -247,7 +255,7 @@ def delete_doc(
     doctype: str = typer.Argument(...),
     name: str = typer.Argument(...),
     yes: bool = typer.Option(False, "--yes", help="Skip confirmation."),
-):
+) -> None:
     """Delete a document."""
     c = get_ctx(ctx)
     if yes:
@@ -266,7 +274,7 @@ def delete_doc(
         err_console.print(f"[green]deleted[/green] {doctype} {name}")
 
 
-def _lifecycle(c: Ctx, doctype: str, name: str, method: str, verb: str):
+def _lifecycle(c: Ctx, doctype: str, name: str, method: str, verb: str) -> None:
     client = get_client(c)
     try:
         client.run_doc_method(doctype, name, method)
@@ -283,7 +291,7 @@ def submit_doc(
     ctx: typer.Context,
     doctype: str = typer.Argument(...),
     name: str = typer.Argument(...),
-):
+) -> None:
     """Submit a document (docstatus 1)."""
     _lifecycle(get_ctx(ctx), doctype, name, "submit", "submitted")
 
@@ -294,7 +302,7 @@ def cancel_doc(
     doctype: str = typer.Argument(...),
     name: str = typer.Argument(...),
     yes: bool = typer.Option(False, "--yes", help="Skip confirmation."),
-):
+) -> None:
     """Cancel a submitted document (docstatus 2)."""
     c = get_ctx(ctx)
     if yes:
@@ -310,7 +318,7 @@ def amend_doc(
     ctx: typer.Context,
     doctype: str = typer.Argument(...),
     name: str = typer.Argument(...),
-):
+) -> None:
     """Create a new draft amending a cancelled document."""
     c = get_ctx(ctx)
     client = get_client(c)

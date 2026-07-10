@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Any
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -108,7 +109,7 @@ def strip_html(text: str) -> str:
     return text.strip()
 
 
-def _from_server_messages(raw) -> list[str]:
+def _from_server_messages(raw: Any) -> list[str]:
     out: list[str] = []
     try:
         messages = json.loads(raw) if isinstance(raw, str) else raw
@@ -140,7 +141,9 @@ def _last_traceback_line(exc: str) -> str | None:
     return last
 
 
-def extract_message(body: dict | list | str | None, status_code: int) -> str:
+def extract_message(
+    body: dict[str, Any] | list[Any] | str | None, status_code: int
+) -> str:
     """Reduce a Frappe error body to the best single human message."""
 
     if isinstance(body, str):

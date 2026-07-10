@@ -42,7 +42,7 @@ def login(
         "--read-only/--writable",
         help="Refuse any write (create/update/delete/method call) through this profile.",
     ),
-):
+) -> None:
     """Store credentials for a site in the OS keyring.
 
     Login is interactive by design: the API key and secret are always prompted
@@ -118,7 +118,7 @@ def login(
 
 
 @app.command("list")
-def list_profiles(ctx: typer.Context):
+def list_profiles(ctx: typer.Context) -> None:
     """List stored profiles; the default is marked."""
     c = get_ctx(ctx)
     try:
@@ -147,7 +147,7 @@ def list_profiles(ctx: typer.Context):
 def logout(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="Profile to remove."),
-):
+) -> None:
     """Remove a stored profile and its credentials."""
     try:
         config.remove_profile(name)
@@ -160,7 +160,7 @@ def logout(
 def set_default(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="Profile to make default."),
-):
+) -> None:
     """Set the default profile."""
     try:
         config.set_default(name)
@@ -186,7 +186,7 @@ def configure(
         "--read-only/--writable",
         help="Make this profile read-only (refuse writes) or writable again.",
     ),
-):
+) -> None:
     """Reconfigure a stored site: rename it, change its description, or toggle
     read-only.
 
@@ -233,7 +233,7 @@ def configure(
 
 
 @app.command("whoami")
-def whoami(ctx: typer.Context):
+def whoami(ctx: typer.Context) -> None:
     """Show the resolved site and logged-in user for the active profile."""
     c = get_ctx(ctx)
     try:

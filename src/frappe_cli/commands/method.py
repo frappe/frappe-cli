@@ -33,7 +33,7 @@ _METHOD_NOT_FOUND = "Method not found or not visible to this session."
 def search_methods(
     ctx: typer.Context,
     query: str = typer.Option(..., "--query", "-q", help="Search terms."),
-):
+) -> None:
     """Search whitelisted methods by type, path, description and docstring."""
     c = get_ctx(ctx)
     client = get_client(c)
@@ -58,7 +58,7 @@ def search_methods(
 
 
 @app.command("list")
-def list_methods(ctx: typer.Context):
+def list_methods(ctx: typer.Context) -> None:
     """List whitelisted methods visible to the current session."""
     c = get_ctx(ctx)
     client = get_client(c)
@@ -81,7 +81,7 @@ def list_methods(ctx: typer.Context):
 def show_method(
     ctx: typer.Context,
     method: str = typer.Argument(..., help="Method path, e.g. 'frappe.ping'."),
-):
+) -> None:
     """Show the detailed contract for a single method."""
     c = get_ctx(ctx)
     client = get_client(c)
