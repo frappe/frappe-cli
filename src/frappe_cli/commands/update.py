@@ -13,21 +13,34 @@ from __future__ import annotations
 import importlib.metadata as importlib_metadata
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import typer
 
 from .. import __version__
-from ..output import confirm, err_console, fail, get_ctx, print_json
+from ..config import config_dir
+from ..output import Ctx, confirm, err_console, fail, get_ctx, print_json
 
 _DIST = "frappe-cli"
 # Canonical source for git installs. Hardcoded rather than read back from
 # direct_url.json: the repo never moves, and the bare name resolves to an
 # unrelated package on PyPI.
 _GIT_SOURCE = "git+https://github.com/frappe/frappe-cli"
+# The same repo as a plain git URL (git ls-remote doesn't understand pip's
+# `git+` scheme prefix).
+_REPO_URL = _GIT_SOURCE.removeprefix("git+")
+
+# Passive update check: we read the repo's git tags at most once per this
+# window, cache the newest version, and nudge interactive users when they lag
+# behind. Kept deliberately long so the check never becomes a hot path.
+_CHECK_TTL = 24 * 60 * 60  # one day
+_CHECK_CACHE = "update-check.json"
 
 
 @dataclass
@@ -196,3 +209,136 @@ def update(ctx: typer.Context) -> None:
             "[green]done.[/green] Re-run `frappe-cli --version` to confirm the "
             "new version."
         )
+
+
+# --- passive update notification ------------------------------------------
+
+_VERSION_RE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
+
+
+def _parse_version(text: str) -> tuple[int, int, int] | None:
+    """Pull an ``X.Y.Z`` release tuple out of a version/tag string.
+
+    Tolerant by design: accepts a leading ``v`` and ignores any pre-release or
+    build suffix (``1.2.3rc1``, ``1.2.3+unknown``). Pre-release *ordering* is
+    intentionally not modelled — this drives a soft nudge, not a gate.
+    """
+    m = _VERSION_RE.search(text)
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+
+
+def _cache_file() -> Path:
+    return config_dir() / _CHECK_CACHE
+
+
+def _load_cache() -> dict:
+    try:
+        return json.loads(_cache_file().read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_cache(data: dict) -> None:
+    try:
+        path = _cache_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+    except OSError:
+        pass
+
+
+def _fetch_latest_tag(timeout: float = 2.0) -> str | None:
+    """Return the newest ``X.Y.Z`` version tag on the remote, or None.
+
+    Uses ``git ls-remote`` — a single round trip with no clone and no auth — and
+    swallows every failure (no git binary, network down, timeout) into None so
+    the caller can treat "couldn't check" and "no newer version" the same way.
+    """
+    if shutil.which("git") is None:
+        return None
+    try:
+        proc = subprocess.run(
+            ["git", "ls-remote", "--tags", "--refs", _REPO_URL],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            # Never let git block on a credential/terminal prompt.
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if proc.returncode != 0:
+        return None
+
+    best: tuple[int, int, int] | None = None
+    best_str: str | None = None
+    for line in proc.stdout.splitlines():
+        # Each line is "<sha>\trefs/tags/<tag>"; we only need the tag.
+        ref = line.rsplit("/", 1)[-1]
+        parsed = _parse_version(ref)
+        if parsed is not None and (best is None or parsed > best):
+            best = parsed
+            best_str = f"{parsed[0]}.{parsed[1]}.{parsed[2]}"
+    return best_str
+
+
+def latest_version(now: float | None = None) -> str | None:
+    """Newest available version string, backed by a day-long cache.
+
+    The network is touched at most once per ``_CHECK_TTL``. A failed check still
+    records the attempt time, so a machine that's offline won't re-probe git on
+    every single command for the rest of the day — it keeps serving the last
+    known-good answer (if any) until the window elapses.
+    """
+    now = time.time() if now is None else now
+    cache = _load_cache()
+    if now - cache.get("checked_at", 0) < _CHECK_TTL:
+        return cache.get("latest")
+
+    latest = _fetch_latest_tag()
+    cache["checked_at"] = now
+    if latest:
+        cache["latest"] = latest
+    _save_cache(cache)
+    return cache.get("latest")
+
+
+def notify_if_outdated(ctx: Ctx) -> None:
+    """Print a one-line "update available" hint to stderr, best-effort.
+
+    Deliberately unobtrusive and safe to call before every command:
+      * only for interactive TTY output — never in ``--json`` or piped mode, so
+        it can't corrupt machine-readable stdout;
+      * skipped for editable/dev checkouts and non-package runs, which carry no
+        meaningful version to compare;
+      * throttled to one network check per day and silent on any error.
+    """
+    if ctx.json or not ctx.is_tty:
+        return
+
+    dist = _dist()
+    if dist is None or _is_editable(dist):
+        return
+
+    current = _parse_version(__version__)
+    if current is None:
+        return
+
+    try:
+        latest = latest_version()
+    except Exception:
+        # A notification must never break the command the user actually ran.
+        return
+    if not latest:
+        return
+    newest = _parse_version(latest)
+    if newest is None or newest <= current:
+        return
+
+    err_console.print(
+        f"[yellow]A new version of frappe-cli is available "
+        f"({__version__} → {latest}).[/yellow] Run [bold]frappe-cli update[/bold] "
+        "to upgrade."
+    )

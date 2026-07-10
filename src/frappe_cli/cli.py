@@ -82,6 +82,9 @@ def _root(
 ):
     """Global options apply to every subcommand."""
     ctx.obj = Ctx(json_mode=json_out, assume_yes=yes, profile=site, debug=debug)
+    # Passive, best-effort "a newer version exists" nudge. No-op in JSON/piped
+    # mode and for dev checkouts; network-throttled to once a day.
+    update_cmd.notify_if_outdated(ctx.obj)
 
 
 # Global flags that must reach the top-level callback. We hoist them to the

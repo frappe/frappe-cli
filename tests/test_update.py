@@ -1,6 +1,7 @@
 import json
 import subprocess
 
+import pytest
 from typer.testing import CliRunner
 
 from frappe_cli.cli import app
@@ -204,3 +205,134 @@ def test_cancelled_when_not_confirmed(monkeypatch):
     result = runner.invoke(app, ["update"])
     assert result.exit_code == 2
     assert ran == []
+
+
+# --- passive update notification ------------------------------------------
+
+
+def _ls_remote_output(*versions):
+    return "".join(f"deadbeef\trefs/tags/{v}\n" for v in versions)
+
+
+def test_parse_version_tolerates_prefix_and_suffix():
+    assert update._parse_version("v1.2.3") == (1, 2, 3)
+    assert update._parse_version("1.2.3") == (1, 2, 3)
+    assert update._parse_version("v1.2.3rc1") == (1, 2, 3)
+    assert update._parse_version("0.0.0+unknown") == (0, 0, 0)
+    assert update._parse_version("not-a-version") is None
+
+
+def test_fetch_latest_tag_picks_highest(monkeypatch):
+    monkeypatch.setattr(update.shutil, "which", lambda n: "/usr/bin/git")
+    out = _ls_remote_output("v0.8.0", "v1.0.0", "v0.9.1", "not-a-tag")
+
+    def fake_run(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
+
+    monkeypatch.setattr(update.subprocess, "run", fake_run)
+    assert update._fetch_latest_tag() == "1.0.0"
+
+
+def test_fetch_latest_tag_without_git_is_none(monkeypatch):
+    monkeypatch.setattr(update.shutil, "which", lambda n: None)
+    assert update._fetch_latest_tag() is None
+
+
+def test_fetch_latest_tag_swallows_failure(monkeypatch):
+    monkeypatch.setattr(update.shutil, "which", lambda n: "/usr/bin/git")
+
+    def boom(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, 2.0)
+
+    monkeypatch.setattr(update.subprocess, "run", boom)
+    assert update._fetch_latest_tag() is None
+
+
+def test_latest_version_uses_fresh_cache(monkeypatch, tmp_path):
+    cache = tmp_path / "update-check.json"
+    cache.write_text(json.dumps({"checked_at": 1000.0, "latest": "1.0.0"}))
+    monkeypatch.setattr(update, "_cache_file", lambda: cache)
+    # Any network call would be a bug: cache is fresh relative to `now`.
+    monkeypatch.setattr(
+        update, "_fetch_latest_tag", lambda *a, **k: pytest.fail("hit network")
+    )
+    assert update.latest_version(now=1000.0 + 10) == "1.0.0"
+
+
+def test_latest_version_refreshes_stale_cache(monkeypatch, tmp_path):
+    cache = tmp_path / "update-check.json"
+    cache.write_text(json.dumps({"checked_at": 1000.0, "latest": "0.8.0"}))
+    monkeypatch.setattr(update, "_cache_file", lambda: cache)
+    monkeypatch.setattr(update, "_fetch_latest_tag", lambda *a, **k: "1.0.0")
+    now = 1000.0 + update._CHECK_TTL + 1
+    assert update.latest_version(now=now) == "1.0.0"
+    # New answer and attempt time are persisted.
+    saved = json.loads(cache.read_text())
+    assert saved["latest"] == "1.0.0"
+    assert saved["checked_at"] == now
+
+
+def test_latest_version_failed_refresh_keeps_last_known(monkeypatch, tmp_path):
+    cache = tmp_path / "update-check.json"
+    cache.write_text(json.dumps({"checked_at": 1000.0, "latest": "0.8.0"}))
+    monkeypatch.setattr(update, "_cache_file", lambda: cache)
+    monkeypatch.setattr(update, "_fetch_latest_tag", lambda *a, **k: None)
+    now = 1000.0 + update._CHECK_TTL + 1
+    # Offline: keep the last known version but bump checked_at to throttle retries.
+    assert update.latest_version(now=now) == "0.8.0"
+    assert json.loads(cache.read_text())["checked_at"] == now
+
+
+def _tty_ctx():
+    from frappe_cli.output import Ctx
+
+    ctx = Ctx(json_mode=False, assume_yes=False)
+    ctx.is_tty = True
+    ctx.json = False
+    return ctx
+
+
+def test_notify_prints_when_outdated(monkeypatch):
+    monkeypatch.setattr(update, "_dist", lambda: FakeDist(installer="uv"))
+    monkeypatch.setattr(update, "__version__", "0.8.0")
+    monkeypatch.setattr(update, "latest_version", lambda: "1.0.0")
+    printed = []
+    monkeypatch.setattr(
+        update.err_console, "print", lambda msg, **k: printed.append(msg)
+    )
+    update.notify_if_outdated(_tty_ctx())
+    assert printed and "1.0.0" in printed[0]
+
+
+def test_notify_silent_when_current(monkeypatch):
+    monkeypatch.setattr(update, "_dist", lambda: FakeDist(installer="uv"))
+    monkeypatch.setattr(update, "__version__", "1.0.0")
+    monkeypatch.setattr(update, "latest_version", lambda: "1.0.0")
+    printed = []
+    monkeypatch.setattr(
+        update.err_console, "print", lambda msg, **k: printed.append(msg)
+    )
+    update.notify_if_outdated(_tty_ctx())
+    assert printed == []
+
+
+def test_notify_silent_in_json_mode(monkeypatch):
+    def fail_check():
+        pytest.fail("must not check for updates in JSON mode")
+
+    monkeypatch.setattr(update, "latest_version", fail_check)
+    ctx = _tty_ctx()
+    ctx.json = True
+    update.notify_if_outdated(ctx)  # returns before touching the network
+
+
+def test_notify_silent_for_editable(monkeypatch):
+    monkeypatch.setattr(
+        update, "_dist", lambda: FakeDist(installer="uv", editable=True)
+    )
+
+    def fail_check():
+        pytest.fail("must not check for updates on a dev checkout")
+
+    monkeypatch.setattr(update, "latest_version", fail_check)
+    update.notify_if_outdated(_tty_ctx())
