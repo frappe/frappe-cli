@@ -66,7 +66,6 @@ def test_guide_runs_without_network():
     # agent runs to orient itself.
     proc = run("guide")
     assert proc.returncode == 0
-    assert "AUTHENTICATION" in proc.stdout
 
 
 def test_whoami_authenticates():

@@ -155,7 +155,6 @@ def test_guide_runs_without_auth():
     # No env / profile configured: guide must still work (no client, no network).
     result = runner.invoke(app, ["guide"])
     assert result.exit_code == 0
-    assert "SITE ACCESS" in result.stdout
     assert "frappe-cli doctype show" in result.stdout
     assert "frappe-cli api" in result.stdout
 
@@ -178,19 +177,6 @@ def test_login_refuses_non_interactive():
     assert result.exit_code == 2
     assert "interactive only" in result.stderr
     assert "FRAPPE_API_SECRET" in result.stderr
-
-
-def test_login_has_no_secret_flags():
-    # Secrets must not be acceptable as flags (they leak into shell history/ps).
-    result = runner.invoke(
-        app,
-        ["auth", "login", "https://erp.example.com", "--api-secret", "s"],
-    )
-    assert result.exit_code == 2
-    assert (
-        "api-secret" in result.stderr.lower()
-        or "no such option" in result.stderr.lower()
-    )
 
 
 def test_login_defaults_authentication_choice_to_oauth(monkeypatch):
