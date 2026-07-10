@@ -6,7 +6,7 @@
 A command-line client for [Frappe](https://frappeframework.com) sites, built for
 humans and AI agents. A pure REST API v2 client for Frappe v16+.
 
-New here (or an agent)? Run `frappe-cli guide` for a one-screen primer covering auth,
+Using an agent? Run `frappe-cli guide` for a one-screen primer covering site access,
 the core verbs, filtering and the raw-API escape hatch.
 
 ```sh
@@ -118,7 +118,7 @@ can still invoke a whitelisted *read* method if you force the verb with
 | `frappe-cli report run <name>` | Run a report with the same filter UX as `list`. |
 | `frappe-cli file upload\|download` | Files, with `--doctype/--name` attach and `--private`. |
 | `frappe-cli api <path>` | Raw v2 access: `frappe-cli api method/<path> -F key=value`. |
-| `frappe-cli guide` | Print a short, self-contained usage primer (no site/auth needed). |
+| `frappe-cli guide` | Print a short agent usage primer (no site/auth needed). |
 | `frappe-cli assistant [pi\|claude\|codex]` | Launch a CLI coding agent wired up as a Frappe assistant. |
 | `frappe-cli update` | Self-upgrade via the uv/pip backend it was installed with. |
 
