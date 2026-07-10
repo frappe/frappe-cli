@@ -10,11 +10,11 @@ gets a private config directory under frappe-cli's own config folder
 at it and populate it just before launch, then ``exec`` the tool so its TUI owns
 the terminal. That lets us:
 
-  * pi     — enable quietStartup (a settings-file-only option) without touching
-             the user's real pi config.
   * codex  — supply a global AGENTS.md (codex has no --append-system-prompt),
              while symlinking auth.json/config.toml so login/config still work.
-  * claude — just append the system prompt via its flag; no config dir needed.
+
+pi and claude both take --append-system-prompt, so they launch with flags only
+and use their own real config dir (auth included) untouched.
 """
 
 from __future__ import annotations
@@ -80,45 +80,24 @@ class Tool:
 
 
 def _pi_build(system_prompt: str, tool_dir: Path) -> Launch:
-    # pi supports genuine TUI minimisation. quietStartup is a settings-file
-    # option only (no flag), so we point pi's config dir at our own folder and
-    # drop a settings.json there with quietStartup on. We merge the user's
-    # existing settings first so their provider/model config is preserved.
-    settings = _read_pi_user_settings()
-    settings["quietStartup"] = True
-    argv = [
-        "pi",
-        "--name",
-        "Frappe assistant",
-        "--approve",
-        "--offline",
-        "--no-skills",
-        "--no-context-files",
-        "--append-system-prompt",
-        system_prompt,
-    ]
+    # Like claude, pi takes --append-system-prompt, so we just launch it with
+    # flags and leave its config dir alone. We deliberately do NOT point
+    # PI_CODING_AGENT_DIR at our own folder: that hid the user's real config
+    # (auth included), breaking authentication. quietStartup is a settings-only
+    # option with no flag, so we simply forgo it rather than override the dir.
     return Launch(
-        argv=argv,
-        env={"PI_CODING_AGENT_DIR": str(tool_dir)},
-        writes=[("settings.json", json.dumps(settings, indent=2) + "\n")],
+        argv=[
+            "pi",
+            "--name",
+            "Frappe assistant",
+            "--approve",
+            "--offline",
+            "--no-skills",
+            "--no-context-files",
+            "--append-system-prompt",
+            system_prompt,
+        ]
     )
-
-
-def _read_pi_user_settings() -> dict:
-    """The user's current pi settings, so we don't clobber provider/model prefs.
-
-    Reads from the real config dir (``$PI_CODING_AGENT_DIR`` if the user set it,
-    else ``~/.pi/agent``). Returns ``{}`` when there is nothing to read.
-    """
-    base = os.environ.get("PI_CODING_AGENT_DIR") or os.path.join(
-        os.path.expanduser("~"), ".pi", "agent"
-    )
-    path = Path(base) / "settings.json"
-    try:
-        data = json.loads(path.read_text())
-        return data if isinstance(data, dict) else {}
-    except (OSError, json.JSONDecodeError):
-        return {}
 
 
 def _codex_build(system_prompt: str, tool_dir: Path) -> Launch:

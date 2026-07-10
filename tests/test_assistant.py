@@ -18,8 +18,6 @@ def _isolate(monkeypatch, tmp_path):
         assistant.shutil, "which", lambda name: name if name in installed else None
     )
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    # Point pi's real config dir at an empty place so the merge reads nothing.
-    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(tmp_path / "pi-user"))
     monkeypatch.setattr(assistant, "_render_sites", lambda: "- staging: https://x")
 
 
@@ -48,7 +46,7 @@ def test_auto_pick_skips_missing(monkeypatch):
     assert _argv(result)[0] == "codex"
 
 
-def test_pi_flags_and_quiet_config():
+def test_pi_gets_flags_and_no_config_dir():
     result = runner.invoke(app, ["assistant", "pi", "--dry-run"])
     out = result.stdout
     argv = _argv(result)
@@ -57,24 +55,9 @@ def test_pi_flags_and_quiet_config():
         assert flag in argv
     assert "--append-system-prompt" in argv
     assert "--thinking" not in argv  # dropped from barista's set
-    # Quiet mode is wired via a frappe-owned config dir + settings.json.
-    assert "env: PI_CODING_AGENT_DIR=" in out
-    assert "assistant/pi" in out
-    assert "write:" in out and "settings.json" in out
-
-
-def test_pi_quiet_settings_merges_user_settings(monkeypatch, tmp_path):
-    # A pre-existing user setting must survive alongside quietStartup.
-    user_dir = tmp_path / "pi-user"
-    user_dir.mkdir()
-    (user_dir / "settings.json").write_text(json.dumps({"provider": "anthropic"}))
-    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(user_dir))
-    # Exercise the builder directly to inspect the planned write content.
-    launch = assistant._pi_build("PROMPT", tmp_path / "out")
-    ((name, content),) = launch.writes
-    data = json.loads(content)
-    assert data["quietStartup"] is True
-    assert data["provider"] == "anthropic"
+    # We no longer override pi's config dir (it hid the user's auth); flags only.
+    assert "env:" not in out
+    assert "write:" not in out
 
 
 def test_codex_uses_agents_md_and_symlinks(tmp_path):
