@@ -1,6 +1,6 @@
 [project]
 name = "frappe-cli"
-version = "0.6.0"
+version = "0.6.1"
 description = "frappe — a command-line client for Frappe sites, built for humans and AI agents."
 readme = "README.md"
 license = { text = "MIT" }
