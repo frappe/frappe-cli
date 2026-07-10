@@ -164,7 +164,7 @@ class FrappeClient:
         if self.read_only and method.upper() not in _SAFE_METHODS:
             raise FrappeError(
                 f"Refusing to send a {method.upper()} request: this profile is "
-                "read-only. Only read requests (GET) are permitted. Use a "
+                "read-only. Only GET, HEAD, and OPTIONS requests are permitted. Use a "
                 "writable profile, or pass -X GET for a whitelisted read method."
             )
         try:
