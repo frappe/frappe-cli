@@ -13,7 +13,12 @@ class FakeDist:
     """Minimal stand-in for importlib.metadata.Distribution."""
 
     def __init__(
-        self, installer=None, location="/opt/venv/site-packages", editable=False
+        self,
+        installer=None,
+        location="/opt/venv/site-packages",
+        editable=False,
+        vcs_url=None,
+        vcs_ref=None,
     ):
         self._files = {}
         if installer is not None:
@@ -21,6 +26,13 @@ class FakeDist:
         if editable:
             self._files["direct_url.json"] = json.dumps(
                 {"url": "file:///src", "dir_info": {"editable": True}}
+            )
+        if vcs_url:
+            info = {"vcs": "git"}
+            if vcs_ref:
+                info["requested_revision"] = vcs_ref
+            self._files["direct_url.json"] = json.dumps(
+                {"url": vcs_url, "vcs_info": info}
             )
         self._location = location
 
@@ -77,6 +89,51 @@ def test_detects_pipx_install(monkeypatch):
     backend = update.detect_backend(dist)
     assert backend.name == "pipx"
     assert backend.argv == ["pipx", "upgrade", "frappe-cli"]
+
+
+def test_git_pip_install_uses_git_source(monkeypatch):
+    # `pip install git+https://…`: must re-pull from git, NOT resolve the bare
+    # name against PyPI (an unrelated `frappe-cli` lives there).
+    monkeypatch.setattr(update.shutil, "which", lambda n: None)
+    dist = FakeDist(
+        installer="pip",
+        location="/opt/venv/lib/site-packages",
+        vcs_url="https://github.com/frappe/frappe-cli",
+        vcs_ref="main",
+    )
+    backend = update.detect_backend(dist)
+    assert backend.name == "pip"
+    src = "git+https://github.com/frappe/frappe-cli@main"
+    assert src in backend.argv
+    assert "frappe-cli" not in backend.argv  # never the bare PyPI name
+    assert "--force-reinstall" in backend.argv
+
+
+def test_git_uv_pip_install_uses_git_source(monkeypatch):
+    monkeypatch.setattr(update.shutil, "which", lambda n: "/usr/bin/uv")
+    dist = FakeDist(
+        installer="uv",
+        location="/opt/venv/lib/site-packages",
+        vcs_url="https://github.com/frappe/frappe-cli",
+    )
+    backend = update.detect_backend(dist)
+    assert backend.name == "uv pip"
+    # No ref recorded -> spec without @ref.
+    assert "git+https://github.com/frappe/frappe-cli" in backend.argv
+    assert backend.argv[-2:] == ["--reinstall-package", "frappe-cli"]
+
+
+def test_git_uv_tool_install_upgrades_by_name(monkeypatch):
+    # uv tool re-pulls its recorded git source on upgrade-by-name.
+    monkeypatch.setattr(update.shutil, "which", lambda n: "/usr/bin/uv")
+    dist = FakeDist(
+        installer="uv",
+        location="/home/u/.local/share/uv/tools/frappe-cli/lib/site-packages",
+        vcs_url="https://github.com/frappe/frappe-cli",
+        vcs_ref="main",
+    )
+    backend = update.detect_backend(dist)
+    assert backend.argv == ["uv", "tool", "upgrade", "frappe-cli"]
 
 
 def test_unknown_installer_returns_none(monkeypatch):
