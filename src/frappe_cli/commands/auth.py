@@ -77,7 +77,7 @@ def login(
     # Verify before storing so we never persist dead credentials.
     try:
         with FrappeClient(norm_site, f"{api_key}:{api_secret}") as client:
-            who = client.call_method("frappe.auth.get_logged_user", http_method="GET")
+            who = client.get_logged_user()
     except FrappeError as e:
         raise fail(f"Could not authenticate against {norm_site}: {e.message}")
 
@@ -219,7 +219,7 @@ def whoami(ctx: typer.Context):
         raise fail(str(e), 2)
     try:
         with FrappeClient(creds.site, creds.token) as client:
-            user = client.call_method("frappe.auth.get_logged_user", http_method="GET")
+            user = client.get_logged_user()
     except FrappeError as e:
         raise fail(e.message)
     from ..output import emit_record

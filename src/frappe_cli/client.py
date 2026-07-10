@@ -311,6 +311,35 @@ class FrappeClient:
         # Honor the caller's verb (PUT/DELETE/…) rather than silently forcing POST.
         return self.request(verb, path, json_body=params or {})
 
+    def get_logged_user(self) -> Any:
+        """Return the logged-in user, only when Frappe returned a trusted envelope."""
+        try:
+            resp = self._http.get("/api/v2/method/frappe.auth.get_logged_user")
+        except httpx.HTTPError as e:
+            raise FrappeError(f"Could not reach {self.site}: {e}") from e
+
+        body: Any = None
+        if resp.content:
+            try:
+                body = resp.json()
+            except (json.JSONDecodeError, ValueError):
+                body = resp.text
+
+        if resp.status_code >= 400:
+            return self._handle(resp)
+
+        self._emit_server_debug(body)
+
+        if isinstance(body, dict) and "data" in body:
+            user = body["data"]
+            if isinstance(user, str) and user and user != "Guest":
+                return user
+
+        raise FrappeError(
+            "Authentication could not be verified: expected get_logged_user to "
+            "return JSON with a non-Guest data value."
+        )
+
     # --- discovery ---------------------------------------------------------
 
     def _retry_after_seconds(self, resp: httpx.Response) -> float:

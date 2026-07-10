@@ -4,6 +4,8 @@ import respx
 from typer.testing import CliRunner
 
 from frappe_cli.cli import _hoist_globals, app
+from frappe_cli.client import FrappeClient
+from frappe_cli.errors import FrappeError
 
 BASE = "http://localhost"
 runner = CliRunner()
@@ -187,6 +189,22 @@ def test_login_has_no_secret_flags():
         "api-secret" in result.stderr.lower()
         or "no such option" in result.stderr.lower()
     )
+
+
+@respx.mock
+def test_get_logged_user_only_trusts_non_guest_data():
+    route = respx.get(f"{BASE}/api/v2/method/frappe.auth.get_logged_user")
+    with FrappeClient(BASE, "k:s") as client:
+        route.mock(return_value=httpx.Response(200, json={"data": "user@example.com"}))
+        assert client.get_logged_user() == "user@example.com"
+
+        route.mock(return_value=httpx.Response(200, json={"data": "Guest"}))
+        with pytest.raises(FrappeError):
+            client.get_logged_user()
+
+        route.mock(return_value=httpx.Response(200, text="<html>login</html>"))
+        with pytest.raises(FrappeError):
+            client.get_logged_user()
 
 
 def test_configure_renames_and_describes(fake_config):
