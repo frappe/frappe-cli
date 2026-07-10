@@ -195,24 +195,30 @@ def test_login_has_no_secret_flags():
 def test_login_defaults_authentication_choice_to_oauth(monkeypatch):
     prompted = {}
 
-    def confirm(message, *, default):
+    def prompt(message, *, default):
         prompted.update(message=message, default=default)
         return default
 
-    monkeypatch.setattr(auth.typer, "confirm", confirm)
+    monkeypatch.setattr(auth.typer, "prompt", prompt)
 
     assert auth._choose_oauth(False) is True
     assert prompted == {
-        "message": "Use OAuth? (choose No to enter API keys)",
-        "default": True,
+        "message": "Authentication method [oauth/api-key]",
+        "default": "oauth",
     }
+
+
+def test_login_can_select_api_key_authentication(monkeypatch):
+    monkeypatch.setattr(auth.typer, "prompt", lambda *args, **kwargs: "api-key")
+
+    assert auth._choose_oauth(False) is False
 
 
 def test_oauth_flag_skips_authentication_choice(monkeypatch):
     def unexpected_prompt(*args, **kwargs):
         raise AssertionError("--oauth should skip the authentication prompt")
 
-    monkeypatch.setattr(auth.typer, "confirm", unexpected_prompt)
+    monkeypatch.setattr(auth.typer, "prompt", unexpected_prompt)
 
     assert auth._choose_oauth(True) is True
 

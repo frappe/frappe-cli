@@ -24,10 +24,14 @@ def _choose_oauth(use_oauth: bool) -> bool:
     """Return the selected auth method; ``--oauth`` skips the prompt."""
     if use_oauth:
         return True
-    return typer.confirm(
-        "Use OAuth? (choose No to enter API keys)",
-        default=True,
-    )
+    while True:
+        method: str = typer.prompt(
+            "Authentication method [oauth/api-key]",
+            default="oauth",
+        ).lower()
+        if method in {"oauth", "api-key"}:
+            return method == "oauth"
+        typer.echo("Choose either 'oauth' or 'api-key'.", err=True)
 
 
 @app.command("login")
