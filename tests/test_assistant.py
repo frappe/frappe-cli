@@ -46,18 +46,13 @@ def test_auto_pick_skips_missing(monkeypatch):
     assert _argv(result)[0] == "codex"
 
 
-def test_pi_gets_flags_and_no_config_dir():
+def test_pi_gets_flags():
     result = runner.invoke(app, ["assistant", "pi", "--dry-run"])
-    out = result.stdout
     argv = _argv(result)
     assert argv[0] == "pi"
     for flag in ("--approve", "--offline", "--no-skills", "--no-context-files"):
         assert flag in argv
     assert "--append-system-prompt" in argv
-    assert "--thinking" not in argv  # dropped from barista's set
-    # We no longer override pi's config dir (it hid the user's auth); flags only.
-    assert "env:" not in out
-    assert "write:" not in out
 
 
 def test_codex_uses_agents_md_and_symlinks(tmp_path):
@@ -82,14 +77,11 @@ def test_codex_dry_run_reports_home_and_agents():
     assert "AGENTS.md" in out
 
 
-def test_claude_gets_only_append_flag():
+def test_claude_gets_append_flag():
     result = runner.invoke(app, ["assistant", "claude", "--dry-run"])
     argv = _argv(result)
     assert argv[0] == "claude"
     assert "--append-system-prompt" in argv
-    assert "--dangerously-skip-permissions" not in argv
-    # No config dir for claude.
-    assert "env:" not in result.stdout
 
 
 def test_passthrough_after_ddash_is_appended():

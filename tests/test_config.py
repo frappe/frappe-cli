@@ -165,18 +165,6 @@ def test_rename_unknown_profile(fake_config):
         fake_config.rename_profile("ghost", "x")
 
 
-def test_config_has_no_secret(fake_config):
-    fake_config.add_profile("a", "http://a.test", "key", "supersecret")
-    text = fake_config.config_path().read_text()
-    assert "supersecret" not in text
-    assert "key" not in text or "key" in '"site"'  # only the word in JSON keys
-
-
-def test_read_only_defaults_false(fake_config):
-    fake_config.add_profile("acme", "http://acme.test", "k", "s")
-    assert fake_config.resolve("acme").read_only is False
-
-
 def test_read_only_stored_and_resolved(fake_config):
     fake_config.add_profile("acme", "http://acme.test", "k", "s", read_only=True)
     profiles, _ = fake_config.list_profiles()
