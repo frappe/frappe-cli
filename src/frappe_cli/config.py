@@ -36,6 +36,9 @@ class Credentials:
     # Human-provided note describing the site (assistant mode uses this to
     # pick the right site). Empty for env-sourced credentials.
     description: str = ""
+    # When true, the client refuses any request that isn't a safe (read-only)
+    # HTTP method, so this profile can never mutate the site.
+    read_only: bool = False
 
     @property
     def token(self) -> str:
@@ -139,12 +142,15 @@ def add_profile(
     api_secret: str,
     make_default: bool = True,
     description: str = "",
+    read_only: bool = False,
 ) -> None:
     data = _load()
     _store_secret(name, f"{api_key}:{api_secret}")
-    entry = {"site": site}
+    entry: dict = {"site": site}
     if description:
         entry["description"] = description
+    if read_only:
+        entry["read_only"] = True
     data["profiles"][name] = entry
     if make_default or data["default"] is None:
         data["default"] = name
@@ -186,6 +192,18 @@ def set_description(name: str, description: str) -> None:
     _save(data)
 
 
+def set_read_only(name: str, read_only: bool) -> None:
+    """Mark a profile read-only (or clear the mark)."""
+    data = _load()
+    if name not in data["profiles"]:
+        raise ConfigError(f"No such profile: {name}")
+    if read_only:
+        data["profiles"][name]["read_only"] = True
+    else:
+        data["profiles"][name].pop("read_only", None)
+    _save(data)
+
+
 def remove_profile(name: str) -> None:
     data = _load()
     if name not in data["profiles"]:
@@ -203,6 +221,10 @@ def set_default(name: str) -> None:
         raise ConfigError(f"No such profile: {name}")
     data["default"] = name
     _save(data)
+
+
+def _env_truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _normalize_site(site: str) -> str:
@@ -231,7 +253,13 @@ def resolve(profile: str | None = None, interactive: bool = True) -> Credentials
             raise ConfigError(
                 "FRAPPE_SITE is set but FRAPPE_API_KEY / FRAPPE_API_SECRET are missing."
             )
-        return Credentials(_normalize_site(env_site), key, secret, source="env")
+        return Credentials(
+            _normalize_site(env_site),
+            key,
+            secret,
+            source="env",
+            read_only=_env_truthy(os.environ.get("FRAPPE_READ_ONLY")),
+        )
 
     profiles, default = list_profiles()
     # Non-interactive runs must be unambiguous. A single authenticated profile
@@ -271,4 +299,5 @@ def resolve(profile: str | None = None, interactive: bool = True) -> Credentials
         api_secret,
         source=name,
         description=profiles[name].get("description", ""),
+        read_only=bool(profiles[name].get("read_only", False)),
     )

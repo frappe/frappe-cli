@@ -23,7 +23,12 @@ def fake_config(tmp_path, monkeypatch):
     from frappe_cli import config
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    for var in ("FRAPPE_SITE", "FRAPPE_API_KEY", "FRAPPE_API_SECRET"):
+    for var in (
+        "FRAPPE_SITE",
+        "FRAPPE_API_KEY",
+        "FRAPPE_API_SECRET",
+        "FRAPPE_READ_ONLY",
+    ):
         monkeypatch.delenv(var, raising=False)
     kr = FakeKeyring()
     monkeypatch.setattr(config, "_keyring", lambda: kr)

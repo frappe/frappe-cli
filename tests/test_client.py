@@ -206,3 +206,47 @@ def test_allows_plain_http_on_localhost():
     # Local development over http is fine — the secret never leaves the box.
     for site in ("http://localhost:8000", "http://127.0.0.1", "http://dev.localhost"):
         FrappeClient(site, "k:s").close()
+
+
+# --- read-only profile guard ----------------------------------------------
+
+
+def ro_client():
+    return FrappeClient(BASE, "k:s", read_only=True)
+
+
+@respx.mock
+def test_read_only_allows_get():
+    respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
+        return_value=httpx.Response(200, json={"data": {"name": "X"}})
+    )
+    assert ro_client().get_document("ToDo", "X") == {"name": "X"}
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda c: c.create_document("ToDo", {"description": "hi"}),
+        lambda c: c.update_document("ToDo", "X", {"description": "hi"}),
+        lambda c: c.delete_document("ToDo", "X"),
+        lambda c: c.run_doc_method("ToDo", "X", "some_method"),
+        lambda c: c.call_method("frappe.client.set_value", params={"a": 1}),
+    ],
+)
+@respx.mock
+def test_read_only_refuses_writes(call):
+    # A catch-all route ensures the guard, not the network, is what stops us:
+    # if any request escaped it would 500 here rather than raise our message.
+    respx.route().mock(return_value=httpx.Response(500))
+    with pytest.raises(FrappeError) as ei:
+        call(ro_client())
+    assert "read-only" in ei.value.message.lower()
+
+
+@respx.mock
+def test_read_only_get_method_call_allowed():
+    route = respx.get(f"{BASE}/api/v2/method/frappe.client.get_count").mock(
+        return_value=httpx.Response(200, json={"data": 3})
+    )
+    assert ro_client().call_method("frappe.client.get_count", http_method="GET") == 3
+    assert route.called

@@ -37,6 +37,11 @@ def login(
         "--default/--no-default",
         help="Make this the default profile (the first profile is always the default).",
     ),
+    read_only: Optional[bool] = typer.Option(
+        None,
+        "--read-only/--writable",
+        help="Refuse any write (create/update/delete/method call) through this profile.",
+    ),
 ):
     """Store credentials for a site in the OS keyring.
 
@@ -70,6 +75,12 @@ def login(
         description = typer.prompt(
             "Description (used by assistant mode; optional)", default=""
         )
+    # Read-only is prompted like the other fields when not set explicitly;
+    # default No so a plain Enter keeps the profile writable.
+    if read_only is None:
+        read_only = typer.confirm(
+            "Read-only? (refuse all writes through this profile)", default=False
+        )
 
     api_key = typer.prompt("API key")
     api_secret = typer.prompt("API secret", hide_input=True)
@@ -89,6 +100,7 @@ def login(
             api_secret,
             make_default=set_default,
             description=description or "",
+            read_only=bool(read_only),
         )
     except config.ConfigError as e:
         raise fail(str(e), 2)
@@ -101,6 +113,7 @@ def login(
     err_console.print(
         f"[green]logged in[/green] as {who} — profile '{profile}'"
         + (" (default)" if is_default else "")
+        + (" [read-only]" if read_only else "")
     )
 
 
@@ -118,11 +131,12 @@ def list_profiles(ctx: typer.Context):
             "profile": name,
             "site": info.get("site", ""),
             "description": info.get("description", ""),
+            "read_only": bool(info.get("read_only", False)),
             "default": name == default,
         }
         for name, info in profiles.items()
     ]
-    emit_list(c, rows, ["profile", "site", "description", "default"])
+    emit_list(c, rows, ["profile", "site", "description", "read_only", "default"])
     if not rows and not c.json:
         err_console.print(
             "[dim]No profiles. Run 'frappe-cli auth login <url>' or use FRAPPE_SITE env vars.[/dim]"
@@ -167,12 +181,19 @@ def configure(
         "--description",
         help="New description; pass an empty string to clear it.",
     ),
+    read_only: Optional[bool] = typer.Option(
+        None,
+        "--read-only/--writable",
+        help="Make this profile read-only (refuse writes) or writable again.",
+    ),
 ):
-    """Reconfigure a stored site: rename it and/or change its description.
+    """Reconfigure a stored site: rename it, change its description, or toggle
+    read-only.
 
-    With no flags on a terminal, both fields are prompted for with their
-    current values as defaults. Credentials are never touched here — use
-    'auth login' to re-enter an API key/secret.
+    With no flags on a terminal, name and description are prompted for with
+    their current values as defaults (read-only is left unchanged unless the
+    flag is passed). Credentials are never touched here — use 'auth login' to
+    re-enter an API key/secret.
     """
     try:
         profiles, _ = config.list_profiles()
@@ -187,11 +208,11 @@ def configure(
 
     # Nothing on the command line: prompt interactively, or refuse when there
     # is no terminal to prompt at (a flag would then be required).
-    if name is None and description is None:
+    if name is None and description is None and read_only is None:
         if not sys.stdin.isatty():
             raise fail(
-                "Nothing to change. Pass --name and/or --description "
-                "(this command only prompts on a terminal).",
+                "Nothing to change. Pass --name, --description and/or "
+                "--read-only/--writable (this command only prompts on a terminal).",
                 2,
             )
         name = typer.prompt("Profile name", default=profile)
@@ -203,6 +224,8 @@ def configure(
             profile = name
         if description is not None:
             config.set_description(profile, description)
+        if read_only is not None:
+            config.set_read_only(profile, read_only)
     except config.ConfigError as e:
         raise fail(str(e), 2)
 
@@ -231,5 +254,6 @@ def whoami(ctx: typer.Context):
             "user": user,
             "source": creds.source,
             "description": creds.description,
+            "read_only": creds.read_only,
         },
     )

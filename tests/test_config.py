@@ -167,3 +167,40 @@ def test_config_has_no_secret(fake_config):
     text = fake_config.config_path().read_text()
     assert "supersecret" not in text
     assert "key" not in text or "key" in '"site"'  # only the word in JSON keys
+
+
+def test_read_only_defaults_false(fake_config):
+    fake_config.add_profile("acme", "http://acme.test", "k", "s")
+    assert fake_config.resolve("acme").read_only is False
+
+
+def test_read_only_stored_and_resolved(fake_config):
+    fake_config.add_profile("acme", "http://acme.test", "k", "s", read_only=True)
+    profiles, _ = fake_config.list_profiles()
+    assert profiles["acme"]["read_only"] is True
+    assert fake_config.resolve("acme").read_only is True
+
+
+def test_set_read_only_toggles(fake_config):
+    fake_config.add_profile("acme", "http://acme.test", "k", "s")
+    fake_config.set_read_only("acme", True)
+    assert fake_config.resolve("acme").read_only is True
+    fake_config.set_read_only("acme", False)
+    assert fake_config.resolve("acme").read_only is False
+    # Cleared flag is not left dangling in the file.
+    profiles, _ = fake_config.list_profiles()
+    assert "read_only" not in profiles["acme"]
+
+
+def test_set_read_only_unknown_profile(fake_config):
+    with pytest.raises(ConfigError):
+        fake_config.set_read_only("ghost", True)
+
+
+def test_env_read_only_flag(fake_config, monkeypatch):
+    monkeypatch.setenv("FRAPPE_SITE", "erp.example.com")
+    monkeypatch.setenv("FRAPPE_API_KEY", "k")
+    monkeypatch.setenv("FRAPPE_API_SECRET", "s")
+    assert fake_config.resolve().read_only is False
+    monkeypatch.setenv("FRAPPE_READ_ONLY", "1")
+    assert fake_config.resolve().read_only is True
