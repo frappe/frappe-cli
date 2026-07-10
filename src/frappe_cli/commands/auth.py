@@ -20,6 +20,16 @@ def _default_profile_name(site: str) -> str:
     return host.split(":", 1)[0]
 
 
+def _choose_oauth(use_oauth: bool) -> bool:
+    """Return the selected auth method; ``--oauth`` skips the prompt."""
+    if use_oauth:
+        return True
+    return typer.confirm(
+        "Use OAuth? (choose No to enter API keys)",
+        default=True,
+    )
+
+
 @app.command("login")
 def login(
     ctx: typer.Context,
@@ -45,7 +55,7 @@ def login(
     use_oauth: bool = typer.Option(
         False,
         "--oauth",
-        help="Log in via OAuth in the browser instead of an API key/secret.",
+        help="Log in via OAuth without showing the authentication method prompt.",
     ),
     client_id: Optional[str] = typer.Option(
         None,
@@ -62,11 +72,11 @@ def login(
 ) -> None:
     """Store credentials for a site in the OS keyring.
 
-    Two auth methods. By default, login is an interactive API key/secret prompt:
-    the key and secret are never accepted as flags or piped in, since that leaks
-    them into shell history, the process list and CI logs. With --oauth, login
-    runs an OAuth 2.0 authorization-code flow in your browser instead — no secret
-    is ever stored, and tokens refresh automatically.
+    Choose OAuth browser login (the default) or API key/secret authentication.
+    API credentials are never accepted as flags or piped in, since that leaks
+    them into shell history, the process list and CI logs. OAuth runs an OAuth
+    2.0 authorization-code flow in your browser instead — no secret is ever
+    stored, and tokens refresh automatically. --oauth skips the method prompt.
 
     Both methods need a terminal (and OAuth needs a local browser). For headless
     / agent use, set FRAPPE_SITE / FRAPPE_API_KEY / FRAPPE_API_SECRET in the
@@ -103,6 +113,8 @@ def login(
         read_only = typer.confirm(
             "Read-only? (refuse all writes through this profile)", default=False
         )
+
+    use_oauth = _choose_oauth(use_oauth)
 
     if use_oauth:
         _login_oauth(

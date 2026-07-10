@@ -436,7 +436,7 @@ def _resolve_oauth(name: str, entry: dict[str, Any]) -> Credentials:
     if not access_token:
         raise ConfigError(
             f"No stored OAuth credentials for profile '{name}'. "
-            f"Run 'frappe-cli auth login --oauth {site}' again for this site."
+            f"Run 'frappe-cli auth login {site}' again for this site."
         )
 
     # Proactive refresh: if the token has (nearly) expired and we can refresh,
@@ -447,7 +447,7 @@ def _resolve_oauth(name: str, entry: dict[str, Any]) -> Credentials:
         except oauth.OAuthError as e:
             raise ConfigError(
                 f"Could not refresh the OAuth session for '{name}': {e}. "
-                f"Run 'frappe-cli auth login --oauth {site}' again."
+                f"Run 'frappe-cli auth login {site}' again."
             ) from e
         update_oauth_tokens(name, tokens)
         access_token = tokens.access_token
