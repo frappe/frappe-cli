@@ -37,9 +37,9 @@ def login(
         "--default/--no-default",
         help="Make this the default profile (the first profile is always the default).",
     ),
-    read_only: bool = typer.Option(
-        False,
-        "--read-only",
+    read_only: Optional[bool] = typer.Option(
+        None,
+        "--read-only/--writable",
         help="Refuse any write (create/update/delete/method call) through this profile.",
     ),
 ):
@@ -75,6 +75,12 @@ def login(
         description = typer.prompt(
             "Description (used by assistant mode; optional)", default=""
         )
+    # Read-only is prompted like the other fields when not set explicitly;
+    # default No so a plain Enter keeps the profile writable.
+    if read_only is None:
+        read_only = typer.confirm(
+            "Read-only? (refuse all writes through this profile)", default=False
+        )
 
     api_key = typer.prompt("API key")
     api_secret = typer.prompt("API secret", hide_input=True)
@@ -94,7 +100,7 @@ def login(
             api_secret,
             make_default=set_default,
             description=description or "",
-            read_only=read_only,
+            read_only=bool(read_only),
         )
     except config.ConfigError as e:
         raise fail(str(e), 2)
