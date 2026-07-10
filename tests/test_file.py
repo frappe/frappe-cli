@@ -44,3 +44,23 @@ def test_download_basenames_server_filename(monkeypatch, tmp_path):
     assert (tmp_path / "pwned.bin").read_bytes() == b"payload"
     assert not (tmp_path.parent / "pwned.bin").exists()
     assert not os.path.exists(tmp_path / ".." / ".." / ".." / "pwned.bin")
+
+
+@respx.mock
+def test_download_does_not_follow_predictable_temp_symlink(monkeypatch, tmp_path):
+    _env(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    victim = tmp_path / "victim"
+    victim.write_bytes(b"keep me")
+    (tmp_path / "result.bin.part").symlink_to(victim)
+    respx.get(f"{BASE}/files/result.bin").mock(
+        return_value=httpx.Response(200, content=b"download")
+    )
+
+    result = runner.invoke(
+        app, ["file", "download", "/files/result.bin", "--output", "result.bin"]
+    )
+
+    assert result.exit_code == 0, result.stderr
+    assert (tmp_path / "result.bin").read_bytes() == b"download"
+    assert victim.read_bytes() == b"keep me"

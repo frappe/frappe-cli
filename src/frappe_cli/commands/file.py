@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -97,15 +99,25 @@ def download(
     out_path = (
         output or file_name or os.path.basename(file_url.split("?", 1)[0]) or "download"
     )
-    # Stream into a temp file and rename on success, so a mid-download failure
-    # never leaves a truncated file at the target path.
-    tmp_path = out_path + ".part"
+    # Stream into an exclusively created temp file beside the destination and
+    # rename on success. A predictable `<output>.part` path could be a symlink
+    # to another file, causing the download to overwrite that file instead.
+    destination = Path(out_path)
+    tmp_path: str | None = None
     try:
-        with open(tmp_path, "wb") as f:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".part",
+            delete=False,
+        ) as f:
+            tmp_path = f.name
             total = client.stream_download(file_url, f.write)
-        os.replace(tmp_path, out_path)
+        os.replace(tmp_path, destination)
     except (FrappeError, OSError) as e:
-        _unlink_quietly(tmp_path)
+        if tmp_path is not None:
+            _unlink_quietly(tmp_path)
         if isinstance(e, FrappeError):
             raise fail(e.message)
         raise fail(f"Could not write {out_path}: {e}")
