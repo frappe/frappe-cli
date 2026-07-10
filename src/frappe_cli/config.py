@@ -5,21 +5,34 @@ Resolution order for the active site/credentials:
 1. Environment variables (``FRAPPE_SITE``, ``FRAPPE_API_KEY``, ``FRAPPE_API_SECRET``) always
    win. This is the headless / agent path and never touches the keyring.
 2. A stored profile (selected with ``-s/--site`` or the configured default).
-   The site URL lives in a plaintext config file; the ``key:secret`` token lives
-   in the OS keyring. There is **no plaintext secret fallback** — a broken
-   keyring means you must use environment variables.
+   The site URL lives in a plaintext config file; the credential lives in the OS
+   keyring. Two credential shapes are supported: an API-key ``key:secret`` string
+   (the default) or, for profiles tagged ``"auth": "oauth"``, a JSON blob of
+   OAuth tokens (``see`` :mod:`frappe_cli.oauth`). There is **no plaintext secret
+   fallback** — a broken keyring means you must use environment variables.
+
+OAuth access tokens are short-lived, so :func:`resolve` refreshes them
+proactively (before they expire) and persists the new tokens before returning.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from . import oauth
 
 KEYRING_SERVICE = "frappe-cli"
+
+# Refresh an OAuth access token a little before it actually expires, so a
+# request never races the clock and 401s on a token that lapsed mid-flight.
+OAUTH_EXPIRY_MARGIN = 60.0  # seconds
 
 
 class ConfigError(Exception):
@@ -28,7 +41,14 @@ class ConfigError(Exception):
 
 @dataclass
 class Credentials:
-    """A resolved site + token, ready to build a client from."""
+    """A resolved site + token, ready to build a client from.
+
+    Two auth shapes share this type. API-key profiles (and the ``FRAPPE_*``
+    environment) carry ``api_key``/``api_secret`` and use ``token_type="token"``.
+    OAuth profiles carry ``access_token``/``refresh_token``/``expires_at`` and
+    use ``token_type="bearer"``. The client is told the ``token_type`` and the
+    right ``wire_token`` so it never has to branch on the shape.
+    """
 
     site: str
     api_key: str
@@ -41,10 +61,21 @@ class Credentials:
     # When true, the client refuses any request that isn't a safe (read-only)
     # HTTP method, so this profile can never mutate the site.
     read_only: bool = False
+    # "token" (API key/secret) or "bearer" (OAuth access token).
+    token_type: str = "token"
+    access_token: str = ""
+    refresh_token: str = ""
+    expires_at: float = 0.0
+    client_id: str = ""
 
     @property
     def token(self) -> str:
         return f"{self.api_key}:{self.api_secret}"
+
+    @property
+    def wire_token(self) -> str:
+        """The credential the client puts on the wire, per ``token_type``."""
+        return self.access_token if self.token_type == "bearer" else self.token
 
 
 def config_dir() -> Path:
@@ -157,6 +188,81 @@ def add_profile(
     if make_default or data["default"] is None:
         data["default"] = name
     _save(data)
+
+
+def add_oauth_profile(
+    name: str,
+    site: str,
+    client_id: str,
+    tokens: oauth.Tokens,
+    make_default: bool = True,
+    description: str = "",
+    read_only: bool = False,
+) -> None:
+    """Store an OAuth profile: a JSON token blob in the keyring, tagged config.
+
+    The config entry gets ``"auth": "oauth"``; the keyring holds
+    ``{access_token, refresh_token, expires_at, token_type, client_id}`` under
+    the same service/name an API-key profile would use. ``client_id`` is
+    persisted so later logins reuse the same registered client.
+    """
+    data = _load()
+    _store_secret(name, _oauth_blob(tokens, client_id))
+    entry: dict[str, Any] = {"site": site, "auth": "oauth"}
+    if description:
+        entry["description"] = description
+    if read_only:
+        entry["read_only"] = True
+    data["profiles"][name] = entry
+    if make_default or data["default"] is None:
+        data["default"] = name
+    _save(data)
+
+
+def update_oauth_tokens(name: str, tokens: oauth.Tokens) -> None:
+    """Persist refreshed OAuth tokens, preserving the stored ``client_id``.
+
+    A refresh response may omit a new refresh token (Frappe reuses the old one),
+    so the previous refresh token is kept when the fresh blob lacks one.
+    """
+    existing = _read_oauth_blob(name)
+    client_id = existing.get("client_id", "")
+    if not tokens.refresh_token:
+        tokens = tokens.with_refresh_token(existing.get("refresh_token", ""))
+    _store_secret(name, _oauth_blob(tokens, client_id))
+
+
+def oauth_client_id(name: str) -> str | None:
+    """The client_id stored for an OAuth profile, if any (for reuse on login)."""
+    return _read_oauth_blob(name).get("client_id") or None
+
+
+def oauth_access_token(name: str) -> str | None:
+    """The stored OAuth access token for a profile, if any (for revocation)."""
+    return _read_oauth_blob(name).get("access_token") or None
+
+
+def _oauth_blob(tokens: oauth.Tokens, client_id: str) -> str:
+    return json.dumps(
+        {
+            "access_token": tokens.access_token,
+            "refresh_token": tokens.refresh_token,
+            "expires_at": tokens.expires_at,
+            "token_type": tokens.token_type,
+            "client_id": client_id,
+        }
+    )
+
+
+def _read_oauth_blob(name: str) -> dict[str, Any]:
+    raw = _read_secret(name)
+    if not raw:
+        return {}
+    try:
+        blob = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return cast("dict[str, Any]", blob) if isinstance(blob, dict) else {}
 
 
 def rename_profile(name: str, new_name: str) -> None:
@@ -288,6 +394,9 @@ def resolve(profile: str | None = None, interactive: bool = True) -> Credentials
             f"No such profile: {name}. Run 'frappe-cli auth list' to see profiles."
         )
 
+    if profiles[name].get("auth") == "oauth":
+        return _resolve_oauth(name, profiles[name])
+
     token = _read_secret(name)
     if not token or ":" not in token:
         raise ConfigError(
@@ -302,4 +411,59 @@ def resolve(profile: str | None = None, interactive: bool = True) -> Credentials
         source=name,
         description=profiles[name].get("description", ""),
         read_only=bool(profiles[name].get("read_only", False)),
+    )
+
+
+def _resolve_oauth(name: str, entry: dict[str, Any]) -> Credentials:
+    """Resolve an OAuth profile, refreshing the access token if it has lapsed.
+
+    The refresh happens here — at resolve time — so every command gets a live
+    token without each having to know about OAuth. The refreshed tokens are
+    persisted before returning so the next command starts from the new expiry.
+    """
+    from . import oauth
+
+    blob = _read_oauth_blob(name)
+    access_token = blob.get("access_token", "")
+    refresh_token = blob.get("refresh_token", "")
+    client_id = blob.get("client_id", "")
+    try:
+        expires_at = float(blob.get("expires_at") or 0)
+    except (TypeError, ValueError):
+        expires_at = 0.0
+    site = _normalize_site(entry["site"])
+
+    if not access_token:
+        raise ConfigError(
+            f"No stored OAuth credentials for profile '{name}'. "
+            f"Run 'frappe-cli auth login {site}' again for this site."
+        )
+
+    # Proactive refresh: if the token has (nearly) expired and we can refresh,
+    # do it now rather than let the next request 401.
+    if refresh_token and expires_at and expires_at - OAUTH_EXPIRY_MARGIN <= time.time():
+        try:
+            tokens = oauth.refresh(site, client_id, refresh_token)
+        except oauth.OAuthError as e:
+            raise ConfigError(
+                f"Could not refresh the OAuth session for '{name}': {e}. "
+                f"Run 'frappe-cli auth login {site}' again."
+            ) from e
+        update_oauth_tokens(name, tokens)
+        access_token = tokens.access_token
+        refresh_token = tokens.refresh_token or refresh_token
+        expires_at = tokens.expires_at
+
+    return Credentials(
+        site=site,
+        api_key="",
+        api_secret="",
+        source=name,
+        description=entry.get("description", ""),
+        read_only=bool(entry.get("read_only", False)),
+        token_type="bearer",
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_at=expires_at,
+        client_id=client_id,
     )

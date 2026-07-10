@@ -5,6 +5,7 @@ from typer.testing import CliRunner
 
 from frappe_cli.cli import _hoist_globals, app
 from frappe_cli.client import FrappeClient
+from frappe_cli.commands import auth
 from frappe_cli.errors import FrappeError
 
 BASE = "http://localhost"
@@ -189,6 +190,37 @@ def test_login_has_no_secret_flags():
         "api-secret" in result.stderr.lower()
         or "no such option" in result.stderr.lower()
     )
+
+
+def test_login_defaults_authentication_choice_to_oauth(monkeypatch):
+    prompted = {}
+
+    def prompt(message, *, default):
+        prompted.update(message=message, default=default)
+        return default
+
+    monkeypatch.setattr(auth.typer, "prompt", prompt)
+
+    assert auth._choose_oauth(False) is True
+    assert prompted == {
+        "message": "Authentication method [oauth/api-key]",
+        "default": "oauth",
+    }
+
+
+def test_login_can_select_api_key_authentication(monkeypatch):
+    monkeypatch.setattr(auth.typer, "prompt", lambda *args, **kwargs: "api-key")
+
+    assert auth._choose_oauth(False) is False
+
+
+def test_oauth_flag_skips_authentication_choice(monkeypatch):
+    def unexpected_prompt(*args, **kwargs):
+        raise AssertionError("--oauth should skip the authentication prompt")
+
+    monkeypatch.setattr(auth.typer, "prompt", unexpected_prompt)
+
+    assert auth._choose_oauth(True) is True
 
 
 @respx.mock

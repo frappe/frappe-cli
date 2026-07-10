@@ -250,3 +250,81 @@ def test_read_only_get_method_call_allowed():
     )
     assert ro_client().call_method("frappe.client.get_count", http_method="GET") == 3
     assert route.called
+
+
+# --- OAuth bearer auth + refresh-retry -------------------------------------
+
+
+@respx.mock
+def test_bearer_header_is_sent():
+    route = respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
+        return_value=httpx.Response(200, json={"data": {"name": "X"}})
+    )
+    FrappeClient(BASE, "ACCESS", token_type="bearer").get_document("ToDo", "X")
+    assert route.calls.last.request.headers["authorization"] == "Bearer ACCESS"
+
+
+@respx.mock
+def test_401_triggers_one_refresh_and_replays():
+    # First call 401s; the refresh callback yields a new token; the replay with
+    # the new bearer token succeeds.
+    respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
+        side_effect=[
+            httpx.Response(401, json={"errors": [{"message": "expired"}]}),
+            httpx.Response(200, json={"data": {"name": "X"}}),
+        ]
+    )
+    calls = {"n": 0}
+
+    def on_unauthorized():
+        calls["n"] += 1
+        return "ACCESS2"
+
+    client = FrappeClient(
+        BASE, "ACCESS1", token_type="bearer", on_unauthorized=on_unauthorized
+    )
+    assert client.get_document("ToDo", "X") == {"name": "X"}
+    assert calls["n"] == 1
+    # The replay carried the refreshed token.
+    route = respx.get(f"{BASE}/api/v2/document/ToDo/X/")
+    assert route.calls[-1].request.headers["authorization"] == "Bearer ACCESS2"
+
+
+@respx.mock
+def test_401_surfaces_when_refresh_fails():
+    respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
+        return_value=httpx.Response(401, json={"errors": [{"message": "nope"}]})
+    )
+
+    def on_unauthorized():
+        return None  # refresh failed
+
+    client = FrappeClient(
+        BASE, "ACCESS1", token_type="bearer", on_unauthorized=on_unauthorized
+    )
+    with pytest.raises(FrappeError) as ei:
+        client.get_document("ToDo", "X")
+    assert ei.value.status_code == 401
+
+
+@respx.mock
+def test_no_refresh_callback_does_not_retry():
+    route = respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
+        return_value=httpx.Response(401, json={"errors": [{"message": "nope"}]})
+    )
+    with pytest.raises(FrappeError):
+        FrappeClient(BASE, "ACCESS", token_type="bearer").get_document("ToDo", "X")
+    assert len(route.calls) == 1  # single attempt, no replay
+
+
+@respx.mock
+def test_debug_redacts_bearer_scheme(capsys):
+    respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
+        return_value=httpx.Response(200, json={"data": {"name": "X"}})
+    )
+    FrappeClient(BASE, "ACCESS", token_type="bearer", debug=True).get_document(
+        "ToDo", "X"
+    )
+    err = capsys.readouterr().err
+    assert "authorization: Bearer ***" in err  # scheme kept, token redacted
+    assert "ACCESS" not in err

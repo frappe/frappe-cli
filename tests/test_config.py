@@ -1,6 +1,9 @@
+import time
+
 import pytest
 
 from frappe_cli.config import ConfigError
+from frappe_cli.oauth import Tokens
 
 
 def test_env_wins(fake_config, monkeypatch):
@@ -204,3 +207,113 @@ def test_env_read_only_flag(fake_config, monkeypatch):
     assert fake_config.resolve().read_only is False
     monkeypatch.setenv("FRAPPE_READ_ONLY", "1")
     assert fake_config.resolve().read_only is True
+
+
+# --- OAuth profiles --------------------------------------------------------
+
+
+def _tokens(access="AT", refresh="RT", ttl=3600):
+    return Tokens(
+        access_token=access,
+        refresh_token=refresh,
+        expires_at=time.time() + ttl,
+        token_type="bearer",
+    )
+
+
+def test_oauth_profile_roundtrip(fake_config):
+    fake_config.add_oauth_profile(
+        "acme", "http://acme.test", "client-1", _tokens(), description="prod"
+    )
+    profiles, default = fake_config.list_profiles()
+    assert default == "acme"
+    assert profiles["acme"]["auth"] == "oauth"
+    # The config file holds no secrets, only the site + tag.
+    assert "AT" not in fake_config.config_path().read_text()
+
+    creds = fake_config.resolve()
+    assert creds.token_type == "bearer"
+    assert creds.access_token == "AT"
+    assert creds.refresh_token == "RT"
+    assert creds.client_id == "client-1"
+    assert creds.wire_token == "AT"
+    assert creds.description == "prod"
+
+
+def test_oauth_client_id_and_access_token_helpers(fake_config):
+    fake_config.add_oauth_profile("acme", "http://acme.test", "client-1", _tokens())
+    assert fake_config.oauth_client_id("acme") == "client-1"
+    assert fake_config.oauth_access_token("acme") == "AT"
+    # An API-key profile has no OAuth blob to read.
+    fake_config.add_profile("keys", "http://keys.test", "k", "s")
+    assert fake_config.oauth_client_id("keys") is None
+
+
+def test_oauth_resolve_refreshes_when_expired(fake_config, monkeypatch):
+    fake_config.add_oauth_profile(
+        "acme", "http://acme.test", "client-1", _tokens(ttl=-10)
+    )
+
+    called = {}
+
+    def fake_refresh(site, client_id, refresh_token):
+        called["args"] = (site, client_id, refresh_token)
+        return _tokens(access="AT2", refresh="RT2")
+
+    from frappe_cli import oauth
+
+    monkeypatch.setattr(oauth, "refresh", fake_refresh)
+
+    creds = fake_config.resolve()
+    # Refreshed token is returned and persisted for the next command.
+    assert creds.access_token == "AT2"
+    assert called["args"] == ("http://acme.test", "client-1", "RT")
+    assert fake_config.oauth_access_token("acme") == "AT2"
+    assert fake_config.oauth_client_id("acme") == "client-1"  # preserved
+
+
+def test_oauth_resolve_no_refresh_when_fresh(fake_config, monkeypatch):
+    fake_config.add_oauth_profile(
+        "acme", "http://acme.test", "client-1", _tokens(ttl=3600)
+    )
+
+    from frappe_cli import oauth
+
+    def boom(*a, **k):
+        raise AssertionError("should not refresh a fresh token")
+
+    monkeypatch.setattr(oauth, "refresh", boom)
+    assert fake_config.resolve().access_token == "AT"
+
+
+def test_oauth_refresh_failure_surfaces_as_config_error(fake_config, monkeypatch):
+    fake_config.add_oauth_profile(
+        "acme", "http://acme.test", "client-1", _tokens(ttl=-10)
+    )
+    from frappe_cli import oauth
+
+    def fail_refresh(*a, **k):
+        raise oauth.OAuthError("token expired")
+
+    monkeypatch.setattr(oauth, "refresh", fail_refresh)
+    with pytest.raises(ConfigError, match="refresh"):
+        fake_config.resolve()
+
+
+def test_update_oauth_tokens_preserves_refresh_when_absent(fake_config):
+    fake_config.add_oauth_profile("acme", "http://acme.test", "client-1", _tokens())
+    # A refresh response with no new refresh token keeps the stored one.
+    fake_config.update_oauth_tokens(
+        "acme",
+        Tokens(access_token="AT2", refresh_token="", expires_at=time.time() + 3600),
+    )
+    creds = fake_config.resolve()
+    assert creds.access_token == "AT2"
+    assert creds.refresh_token == "RT"
+
+
+def test_api_key_profile_stays_token_type(fake_config):
+    fake_config.add_profile("acme", "http://acme.test", "k", "s")
+    creds = fake_config.resolve()
+    assert creds.token_type == "token"
+    assert creds.wire_token == "k:s"
