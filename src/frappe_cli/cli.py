@@ -9,6 +9,7 @@ import typer
 
 from . import __version__
 from .commands import api as api_cmd
+from .commands import assistant as assistant_cmd
 from .commands import auth, doc, doctype, file, report
 from .commands import guide as guide_cmd
 from .commands import method as method_cmd
@@ -35,6 +36,14 @@ app.add_typer(method_cmd.app, name="method")
 app.command(name="api", help=api_cmd.api.__doc__)(api_cmd.api)
 # `frappe-cli guide` — static usage primer; the first thing an agent should run.
 app.command(name="guide", help=guide_cmd.guide.__doc__)(guide_cmd.guide)
+# `frappe-cli assistant [tool] -- <args>` — launch a CLI agent as a Frappe
+# assistant. allow_extra_args/ignore_unknown_options let trailing args (and
+# the child tool's own flags) pass through untouched via ctx.args.
+app.command(
+    name="assistant",
+    help=assistant_cmd.assistant.__doc__,
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)(assistant_cmd.assistant)
 
 
 def _version_callback(value: bool):
