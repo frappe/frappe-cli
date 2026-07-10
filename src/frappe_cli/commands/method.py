@@ -11,7 +11,15 @@ from __future__ import annotations
 import typer
 
 from ..errors import FrappeError
-from ..output import emit_list, emit_record, err_console, fail, get_ctx, print_json
+from ..output import (
+    emit_list,
+    emit_record,
+    emit_source,
+    err_console,
+    fail,
+    get_ctx,
+    print_json,
+)
 from ..session import get_client
 
 app = typer.Typer(no_args_is_help=True, help="Discover and inspect API methods.")
@@ -110,3 +118,10 @@ def show_method(
         emit_list(c, params, ["name", "type", "required", "default"])
     else:
         err_console.print("[dim]No parameters.[/dim]")
+
+    # Source is present only when the method's app opts in via the
+    # `expose_discovery_source` hook; older sites omit the key entirely.
+    source = result.get("source") if isinstance(result, dict) else None
+    if source:
+        err_console.print("[bold]Source[/bold]")
+        emit_source(source)
