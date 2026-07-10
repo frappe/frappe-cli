@@ -62,6 +62,24 @@ frappe-cli -s raven doc list "Raven Channel"           # pick a profile per comm
 frappe-cli auth whoami
 ```
 
+### Read-only profiles
+
+Mark a profile **read-only** so it can never mutate the site — any request that
+isn't a safe (GET) HTTP method is refused before it leaves your machine. This
+covers `doc create/update/delete/submit`, `file upload` and method calls
+(`api`, `method`), while reads (`doc list/get`, `doctype show`, `report run`)
+keep working.
+
+```sh
+frappe-cli auth login https://prod.example.com --name prod --read-only
+frappe-cli auth configure prod --read-only              # flip an existing profile
+frappe-cli auth configure prod --writable               # allow writes again
+```
+
+For the headless / env-var path, set `FRAPPE_READ_ONLY=1`. A read-only profile
+can still invoke a whitelisted *read* method if you force the verb with
+`frappe-cli api method/… -X GET`.
+
 ## Output & scripting
 
 - On a TTY you get rich tables, colours and confirmation prompts.

@@ -31,6 +31,10 @@ _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 # Never print more than this much of a request body in --debug (file uploads etc.)
 _DEBUG_BODY_LIMIT = 2000
 
+# HTTP methods that never mutate server state. A read-only profile is allowed
+# exactly these; anything else is refused before it reaches the wire.
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
 
 def _is_local_host(host: str) -> bool:
     host = (host or "").lower()
@@ -45,9 +49,11 @@ class FrappeClient:
         timeout: float = DEFAULT_TIMEOUT,
         *,
         debug: bool = False,
+        read_only: bool = False,
     ):
         self.site = site.rstrip("/")
         self.debug = debug
+        self.read_only = read_only
 
         # Refuse to put the API key/secret on the wire in cleartext. Plain HTTP
         # is only allowed for local development (localhost / *.localhost / loopback).
@@ -155,6 +161,12 @@ class FrappeClient:
         Raises :class:`FrappeError` on any non-2xx response, or
         :class:`FrappeError` wrapping a transport error.
         """
+        if self.read_only and method.upper() not in _SAFE_METHODS:
+            raise FrappeError(
+                f"Refusing to send a {method.upper()} request: this profile is "
+                "read-only. Only read requests (GET) are permitted. Use a "
+                "writable profile, or pass -X GET for a whitelisted read method."
+            )
         try:
             resp = self._http.request(
                 method,
