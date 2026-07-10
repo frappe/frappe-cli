@@ -311,7 +311,7 @@ class FrappeClient:
         # Honor the caller's verb (PUT/DELETE/…) rather than silently forcing POST.
         return self.request(verb, path, json_body=params or {})
 
-    def get_logged_user(self) -> Any:
+    def get_logged_user(self) -> str:
         """Return the logged-in user, only when Frappe returned a trusted envelope."""
         try:
             resp = self._http.get("/api/v2/method/frappe.auth.get_logged_user")
