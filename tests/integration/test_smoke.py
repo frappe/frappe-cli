@@ -124,17 +124,25 @@ def test_doc_crud_lifecycle():
 # present on every Frappe site that exposes discovery at all.
 PING = "frappe.ping"
 
+# Every doctype inherits add_comment from the Document base class, so it's the
+# ideal smoke doctype method: whitelisted, universal, and observable (the
+# returned Comment carries the text back).
+DOC_METHOD = "add_comment"
 
-def test_method_list_includes_ping():
-    result = run_json("method", "list")
-    paths = {m["path"] for m in result["methods"]}
-    assert PING in paths
+
+def test_method_list_includes_both_kinds():
+    # The index is a tagged union: rpc entries carry a dotted `path`, doctype
+    # entries carry `doctype` + `method` — no shared identifier field.
+    methods = run_json("method", "list")["methods"]
+    rpc_paths = {m.get("path") for m in methods if m.get("kind") == "rpc"}
+    assert PING in rpc_paths
+    assert any(m.get("kind") == "doctype" for m in methods)
 
 
 def test_method_search_finds_ping():
     result = run_json("method", "search", "-q", "ping")
-    hit = next(r for r in result["results"] if r["path"] == PING)
-    assert hit["allow_guest"] is True
+    hit = next(r for r in result["results"] if r.get("path") == PING)
+    assert hit["kind"] == "rpc"
 
 
 def test_method_show_exposes_contract():
@@ -143,6 +151,37 @@ def test_method_show_exposes_contract():
     assert result["allow_guest"] is True
     assert result["endpoint"] == f"/api/v2/method/{PING}"
     assert "GET" in result["http_methods"]
+
+
+def test_method_list_doctype_includes_inherited_standard_methods():
+    # The doctype-scoped listing is live (not the cached index) and must fold
+    # in methods inherited from the Document base class.
+    methods = run_json("method", "list", "--doctype", DOCTYPE)["methods"]
+    assert DOC_METHOD in {m.get("method") for m in methods}
+
+
+def test_method_show_doctype_exposes_contract():
+    result = run_json("method", "show", "--doctype", DOCTYPE, DOC_METHOD)
+    assert result["kind"] == "doctype"
+    assert result["doctype"] == DOCTYPE
+    assert result["method"] == DOC_METHOD
+    assert "POST" in result["http_methods"]
+
+
+def test_method_call_invokes_doctype_method():
+    # End-to-end: create a doc, invoke an inherited whitelisted method on it,
+    # and check the effect (add_comment returns the created Comment).
+    marker = f"frappectl-smoke-{uuid.uuid4().hex}"
+    created = run_json("doc", "create", DOCTYPE, "--set", "description=smoke")
+    name = created["name"]
+    try:
+        comment = run_json(
+            "method", "call", DOCTYPE, name, DOC_METHOD, "-f", f"text={marker}"
+        )
+        assert marker in json.dumps(comment)
+    finally:
+        deleted = run("--yes", "doc", "delete", DOCTYPE, name)
+        assert deleted.returncode == 0, deleted.stderr
 
 
 def test_method_show_missing_reports_clean_error():
