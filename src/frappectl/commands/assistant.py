@@ -1,11 +1,11 @@
-"""``frappe-cli assistant`` — launch a CLI coding agent wired up for Frappe.
+"""``frappectl assistant`` — launch a CLI coding agent wired up for Frappe.
 
 A thin launcher (in the spirit of the ``barista`` wrapper): it starts a
 supported agent tool with a Frappe-flavoured system prompt, so the agent knows
-to drive ``frappe-cli`` and which authenticated sites it can reach.
+to drive ``frappectl`` and which authenticated sites it can reach.
 
 We never touch the working directory and never write into it. Instead each tool
-gets a private config directory under frappe-cli's own config folder
+gets a private config directory under frappectl's own config folder
 (``~/.config/frappe/assistant/<tool>``); we point the tool's config-dir env var
 at it and populate it just before launch, then ``exec`` the tool so its TUI owns
 the terminal. That lets us:
@@ -38,13 +38,13 @@ from .guide import GUIDE
 _SYSTEM_PROMPT_TEMPLATE = """\
 You are a Frappe assistant.
 
-Use `frappe-cli` whenever you need to inspect or operate on Frappe sites.
+Use `frappectl` whenever you need to inspect or operate on Frappe sites.
 
-Use this `frappe-cli guide` output to use `frappe-cli` effectively:
+Use this `frappectl guide` output to use `frappectl` effectively:
 
 {guide}
 
-Available authenticated Frappe sites from `frappe-cli auth list`:
+Available authenticated Frappe sites from `frappectl auth list`:
 
 {sites}
 
@@ -150,7 +150,7 @@ def _render_sites() -> str:
     except config.ConfigError:
         profiles, default = {}, None
     if not profiles:
-        return "(no profiles stored; the human must run `frappe-cli auth login`)"
+        return "(no profiles stored; the human must run `frappectl auth login`)"
     lines = []
     for name, info in profiles.items():
         parts = [f"- {name}: {info.get('site', '')}"]
@@ -229,19 +229,19 @@ def assistant(
     """Launch a CLI coding agent wired up as a Frappe assistant.
 
     Starts a supported agent tool (pi, claude or codex) with a Frappe system
-    prompt, so it drives `frappe-cli` against your authenticated sites. Anything
+    prompt, so it drives `frappectl` against your authenticated sites. Anything
     after `--` is passed straight through to the tool, e.g.:
 
-    frappe-cli assistant pi -- "list overdue invoices on staging"
+    frappectl assistant pi -- "list overdue invoices on staging"
     """
     chosen = _pick_tool(tool)
 
     if not shutil.which(chosen.binary):
         raise fail(f"'{chosen.binary}' not found on PATH.", 127)
-    # The agent shells out to `frappe-cli`; refuse to launch if it can't.
-    if not shutil.which("frappe-cli"):
+    # The agent shells out to `frappectl`; refuse to launch if it can't.
+    if not shutil.which("frappectl"):
         raise fail(
-            "'frappe-cli' not found on PATH; the assistant needs it to reach "
+            "'frappectl' not found on PATH; the assistant needs it to reach "
             "your sites.",
             127,
         )

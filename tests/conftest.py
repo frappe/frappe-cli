@@ -20,7 +20,7 @@ class FakeKeyring:
 @pytest.fixture
 def fake_config(tmp_path, monkeypatch):
     """Isolated config dir + in-memory keyring."""
-    from frappe_cli import config
+    from frappectl import config
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     for var in (

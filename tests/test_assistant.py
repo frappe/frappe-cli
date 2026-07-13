@@ -3,8 +3,8 @@ import json
 import pytest
 from typer.testing import CliRunner
 
-from frappe_cli.cli import app
-from frappe_cli.commands import assistant
+from frappectl.cli import app
+from frappectl.commands import assistant
 
 runner = CliRunner()
 
@@ -13,7 +13,7 @@ runner = CliRunner()
 def _isolate(monkeypatch, tmp_path):
     """Installed binaries, an isolated frappe config dir, and a deterministic
     site block, so tests never depend on the developer's real setup."""
-    installed = {"pi", "claude", "codex", "frappe-cli"}
+    installed = {"pi", "claude", "codex", "frappectl"}
     monkeypatch.setattr(
         assistant.shutil, "which", lambda name: name if name in installed else None
     )
@@ -39,7 +39,7 @@ def test_auto_pick_skips_missing(monkeypatch):
     monkeypatch.setattr(
         assistant.shutil,
         "which",
-        lambda name: name if name in {"codex", "frappe-cli"} else None,
+        lambda name: name if name in {"codex", "frappectl"} else None,
     )
     result = runner.invoke(app, ["assistant", "--dry-run"])
     assert result.exit_code == 0
@@ -127,5 +127,5 @@ def test_materialize_writes_and_symlinks(tmp_path):
 
 def test_system_prompt_includes_guide_and_sites():
     sp = assistant._system_prompt()
-    assert "frappe-cli" in sp
+    assert "frappectl" in sp
     assert "staging: https://x" in sp

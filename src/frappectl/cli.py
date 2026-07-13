@@ -1,4 +1,4 @@
-"""frappe-cli — top-level Typer app and global options."""
+"""frappectl — top-level Typer app and global options."""
 
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ from .errors import FrappeError, UsageError
 from .output import Ctx, fail
 
 app = typer.Typer(
-    name="frappe-cli",
-    help="frappe-cli — a command-line client for Frappe sites.",
+    name="frappectl",
+    help="frappectl — a command-line client for Frappe sites.",
     no_args_is_help=True,
     add_completion=True,
     rich_markup_mode="rich",
@@ -33,13 +33,13 @@ app.add_typer(doctype.app, name="doctype")
 app.add_typer(file.app, name="file")
 app.add_typer(report.app, name="report")
 app.add_typer(method_cmd.app, name="method")
-# `frappe-cli api <path>` — single command, mounted directly.
+# `frappectl api <path>` — single command, mounted directly.
 app.command(name="api", help=api_cmd.api.__doc__)(api_cmd.api)
-# `frappe-cli guide` — static usage primer; the first thing an agent should run.
+# `frappectl guide` — static usage primer; the first thing an agent should run.
 app.command(name="guide", help=guide_cmd.guide.__doc__)(guide_cmd.guide)
-# `frappe-cli update` — self-upgrade via the uv/pip backend it was installed with.
+# `frappectl update` — self-upgrade via the uv/pip backend it was installed with.
 app.command(name="update", help=update_cmd.update.__doc__)(update_cmd.update)
-# `frappe-cli assistant [tool] -- <args>` — launch a CLI agent as a Frappe
+# `frappectl assistant [tool] -- <args>` — launch a CLI agent as a Frappe
 # assistant. allow_extra_args/ignore_unknown_options let trailing args (and
 # the child tool's own flags) pass through untouched via ctx.args.
 app.command(
@@ -51,7 +51,7 @@ app.command(
 
 def _version_callback(value: bool) -> None:
     if value:
-        typer.echo(f"frappe-cli {__version__}")
+        typer.echo(f"frappectl {__version__}")
         raise typer.Exit()
 
 
@@ -89,8 +89,8 @@ def _root(
 
 # Global flags that must reach the top-level callback. We hoist them to the
 # front of argv so they work in gh-style trailing position too, e.g.
-#   frappe-cli doc list "Sales Invoice" --json
-# is rewritten to `frappe-cli --json doc list "Sales Invoice"`.
+#   frappectl doc list "Sales Invoice" --json
+# is rewritten to `frappectl --json doc list "Sales Invoice"`.
 _VALUELESS_GLOBALS = {"--json", "--yes", "-y", "--debug"}
 _VALUED_GLOBALS = {"-s", "--site"}
 

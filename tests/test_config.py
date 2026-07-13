@@ -2,8 +2,8 @@ import time
 
 import pytest
 
-from frappe_cli.config import ConfigError
-from frappe_cli.oauth import Tokens
+from frappectl.config import ConfigError
+from frappectl.oauth import Tokens
 
 
 def test_env_wins(fake_config, monkeypatch):
@@ -145,6 +145,29 @@ def test_rename_profile_moves_secret_and_default(fake_config):
     assert fake_config.resolve("prod").token == "k:s"
 
 
+def test_legacy_keyring_secret_migrates_on_read(fake_config):
+    # A profile created before the frappectl rename: config entry exists but
+    # the secret sits under the old keyring service name.
+    fake_config.add_profile("acme", "http://acme.test", "k", "s")
+    kr = fake_config._keyring()
+    kr.store[("frappe-cli", "acme")] = kr.store.pop(("frappectl", "acme"))
+
+    # The first read finds it via the legacy fallback...
+    assert fake_config.resolve("acme").token == "k:s"
+    # ...and migrates it forward, leaving nothing under the old service.
+    assert kr.store.get(("frappectl", "acme")) == "k:s"
+    assert ("frappe-cli", "acme") not in kr.store
+
+
+def test_delete_profile_clears_legacy_secret(fake_config):
+    fake_config.add_profile("acme", "http://acme.test", "k", "s")
+    kr = fake_config._keyring()
+    kr.store[("frappe-cli", "acme")] = "k:s"
+    fake_config.remove_profile("acme")
+    assert ("frappe-cli", "acme") not in kr.store
+    assert ("frappectl", "acme") not in kr.store
+
+
 def test_rename_profile_only_updates_default_when_it_was_default(fake_config):
     fake_config.add_profile("a", "http://a.test", "k", "s")
     fake_config.add_profile("b", "http://b.test", "k", "s", make_default=False)
@@ -248,7 +271,7 @@ def test_oauth_resolve_refreshes_when_expired(fake_config, monkeypatch):
         called["args"] = (site, client_id, refresh_token)
         return _tokens(access="AT2", refresh="RT2")
 
-    from frappe_cli import oauth
+    from frappectl import oauth
 
     monkeypatch.setattr(oauth, "refresh", fake_refresh)
 
@@ -265,7 +288,7 @@ def test_oauth_resolve_no_refresh_when_fresh(fake_config, monkeypatch):
         "acme", "http://acme.test", "client-1", _tokens(ttl=3600)
     )
 
-    from frappe_cli import oauth
+    from frappectl import oauth
 
     def boom(*a, **k):
         raise AssertionError("should not refresh a fresh token")
@@ -278,7 +301,7 @@ def test_oauth_refresh_failure_surfaces_as_config_error(fake_config, monkeypatch
     fake_config.add_oauth_profile(
         "acme", "http://acme.test", "client-1", _tokens(ttl=-10)
     )
-    from frappe_cli import oauth
+    from frappectl import oauth
 
     def fail_refresh(*a, **k):
         raise oauth.OAuthError("token expired")

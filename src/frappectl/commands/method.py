@@ -1,4 +1,4 @@
-"""``frappe-cli method`` — discover and invoke whitelisted API methods.
+"""``frappectl method`` — discover and invoke whitelisted API methods.
 
 Backed by Frappe's ``/api/v2/discovery`` endpoints. Discovery covers two kinds
 of method, distinguished by a ``kind`` field:

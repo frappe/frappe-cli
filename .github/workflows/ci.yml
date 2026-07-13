@@ -82,7 +82,7 @@ jobs:
       SITE: test.localhost
 
     steps:
-      - name: Checkout frappe-cli
+      - name: Checkout frappectl
         uses: actions/checkout@v7
 
       # --- The CLI under test (managed by uv, isolated from the bench env) ---
@@ -91,7 +91,7 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Install frappe-cli
+      - name: Install frappectl
         run: uv sync --extra dev
 
       # --- Toolchain for provisioning a Frappe bench ---

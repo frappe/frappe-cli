@@ -8,7 +8,7 @@ Resolution order for the active site/credentials:
    The site URL lives in a plaintext config file; the credential lives in the OS
    keyring. Two credential shapes are supported: an API-key ``key:secret`` string
    (the default) or, for profiles tagged ``"auth": "oauth"``, a JSON blob of
-   OAuth tokens (``see`` :mod:`frappe_cli.oauth`). There is **no plaintext secret
+   OAuth tokens (``see`` :mod:`frappectl.oauth`). There is **no plaintext secret
    fallback** — a broken keyring means you must use environment variables.
 
 OAuth access tokens are short-lived, so :func:`resolve` refreshes them
@@ -28,7 +28,10 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     from . import oauth
 
-KEYRING_SERVICE = "frappe-cli"
+KEYRING_SERVICE = "frappectl"
+# Pre-rename installs stored secrets under this service name; reads fall back
+# to it (and migrate forward) so existing logins survive the rename.
+_LEGACY_KEYRING_SERVICE = "frappe-cli"
 
 # Refresh an OAuth access token a little before it actually expires, so a
 # request never races the clock and 401s on a token that lapsed mid-flight.
@@ -135,7 +138,7 @@ def _store_secret(profile: str, token: str) -> None:
     except Exception as e:
         raise ConfigError(
             "Could not store credentials in the OS keyring "
-            f"({e}). Frappe CLI does not write secrets to disk. "
+            f"({e}). frappectl does not write secrets to disk. "
             "On headless machines use FRAPPE_SITE / FRAPPE_API_KEY / FRAPPE_API_SECRET."
         ) from e
 
@@ -143,7 +146,18 @@ def _store_secret(profile: str, token: str) -> None:
 def _read_secret(profile: str) -> str | None:
     kr = _keyring()
     try:
-        return cast("str | None", kr.get_password(KEYRING_SERVICE, profile))
+        secret = cast("str | None", kr.get_password(KEYRING_SERVICE, profile))
+        if secret is None:
+            # Profiles created before the frappectl rename live under the old
+            # service name. Migrate them forward on first read so the fallback
+            # only ever fires once per profile.
+            secret = cast(
+                "str | None", kr.get_password(_LEGACY_KEYRING_SERVICE, profile)
+            )
+            if secret is not None:
+                kr.set_password(KEYRING_SERVICE, profile, secret)
+                _delete_legacy_secret(profile)
+        return secret
     except Exception as e:
         raise ConfigError(
             f"Could not read credentials from the OS keyring ({e}). "
@@ -157,6 +171,15 @@ def _delete_secret(profile: str) -> None:
         kr.delete_password(KEYRING_SERVICE, profile)
     except Exception:
         # Deleting a missing secret is fine.
+        pass
+    _delete_legacy_secret(profile)
+
+
+def _delete_legacy_secret(profile: str) -> None:
+    kr = _keyring()
+    try:
+        kr.delete_password(_LEGACY_KEYRING_SERVICE, profile)
+    except Exception:
         pass
 
 
@@ -386,12 +409,12 @@ def resolve(profile: str | None = None, interactive: bool = True) -> Credentials
     name = profile or default
     if not name:
         raise ConfigError(
-            "No site configured. Run 'frappe-cli auth login <url>' or set FRAPPE_SITE, "
+            "No site configured. Run 'frappectl auth login <url>' or set FRAPPE_SITE, "
             "FRAPPE_API_KEY and FRAPPE_API_SECRET."
         )
     if name not in profiles:
         raise ConfigError(
-            f"No such profile: {name}. Run 'frappe-cli auth list' to see profiles."
+            f"No such profile: {name}. Run 'frappectl auth list' to see profiles."
         )
 
     if profiles[name].get("auth") == "oauth":
@@ -401,7 +424,7 @@ def resolve(profile: str | None = None, interactive: bool = True) -> Credentials
     if not token or ":" not in token:
         raise ConfigError(
             f"No stored credentials for profile '{name}'. "
-            f"Run 'frappe-cli auth login' again for this site."
+            f"Run 'frappectl auth login' again for this site."
         )
     api_key, api_secret = token.split(":", 1)
     return Credentials(
@@ -436,7 +459,7 @@ def _resolve_oauth(name: str, entry: dict[str, Any]) -> Credentials:
     if not access_token:
         raise ConfigError(
             f"No stored OAuth credentials for profile '{name}'. "
-            f"Run 'frappe-cli auth login {site}' again for this site."
+            f"Run 'frappectl auth login {site}' again for this site."
         )
 
     # Proactive refresh: if the token has (nearly) expired and we can refresh,
@@ -447,7 +470,7 @@ def _resolve_oauth(name: str, entry: dict[str, Any]) -> Credentials:
         except oauth.OAuthError as e:
             raise ConfigError(
                 f"Could not refresh the OAuth session for '{name}': {e}. "
-                f"Run 'frappe-cli auth login {site}' again."
+                f"Run 'frappectl auth login {site}' again."
             ) from e
         update_oauth_tokens(name, tokens)
         access_token = tokens.access_token
