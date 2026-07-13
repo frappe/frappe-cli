@@ -1,27 +1,23 @@
-"""``frappectl update`` — upgrade frappectl in place via its own installer.
+"""``frappectl update`` — upgrade frappectl in place.
 
-The CLI only knows how to drive one of two package backends: uv and pip. We
-work out how *this* install was created (from the ``INSTALLER`` marker and the
-install location), pick the matching upgrade command, and run it. If we can't
-recognise a uv/pip backend — or the install is an editable/dev checkout — we
-refuse rather than guess, because running the wrong upgrade command could break
-the user's environment or silently no-op.
+`uv tool install frappectl` is the supported install method, so updating is
+simply `uv tool upgrade frappectl`. Editable/dev checkouts are refused (update
+those with git); anything else that `uv tool upgrade` can't handle fails with
+uv's own error message.
 """
 
 from __future__ import annotations
 
 import importlib.metadata as importlib_metadata
 import json
-import os
 import re
 import shutil
 import subprocess
-import sys
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+import httpx
 import typer
 
 from .. import __version__
@@ -29,27 +25,17 @@ from ..config import config_dir
 from ..output import Ctx, confirm, err_console, fail, get_ctx, print_json
 
 _DIST = "frappectl"
-# Canonical source for git installs. Hardcoded rather than read back from
-# direct_url.json: the repo never moves, and a git install should keep tracking
-# git rather than silently switch over to the PyPI release.
-_GIT_SOURCE = "git+https://github.com/frappe/frappectl"
-# The same repo as a plain git URL (git ls-remote doesn't understand pip's
-# `git+` scheme prefix).
-_REPO_URL = _GIT_SOURCE.removeprefix("git+")
+# PyPI's public JSON API for the package — the source of truth for what
+# `frappectl update` can actually install.
+_PYPI_JSON_URL = f"https://pypi.org/pypi/{_DIST}/json"
 
-# Passive update check: we read the repo's git tags at most once per this
-# window, cache the newest version, and nudge interactive users when they lag
+# Passive update check: we ask PyPI for the latest release at most once per
+# this window, cache the answer, and nudge interactive users when they lag
 # behind. Kept deliberately long so the check never becomes a hot path.
 _CHECK_TTL = 24 * 60 * 60  # one day
 _CHECK_CACHE = "update-check.json"
 
-
-@dataclass
-class Backend:
-    """A recognised way to upgrade this install: a label and the command."""
-
-    name: str  # human-facing backend name, e.g. "uv tool", "pip"
-    argv: list[str]  # the upgrade command to run
+_UPGRADE_ARGV = ["uv", "tool", "upgrade", _DIST]
 
 
 def _dist() -> importlib_metadata.Distribution | None:
@@ -71,136 +57,42 @@ def _is_editable(dist: importlib_metadata.Distribution) -> bool:
     return bool(data.get("dir_info", {}).get("editable"))
 
 
-def _installer(dist: importlib_metadata.Distribution) -> str:
-    """The tool that recorded the install (`pip`, `uv`, …), lower-cased."""
-    text = dist.read_text("INSTALLER")
-    return text.strip().lower() if text else ""
-
-
-def _is_vcs_install(dist: importlib_metadata.Distribution) -> bool:
-    """True if this was installed from a VCS (git) URL rather than a registry.
-
-    A git install may be ahead of the PyPI release (a branch or unreleased
-    tag), so upgrading it by bare name could silently move it onto the PyPI
-    line — we upgrade from `_GIT_SOURCE` instead. PEP 610's direct_url.json
-    carries a `vcs_info` block for exactly these installs.
-    """
-    text = dist.read_text("direct_url.json")
-    if not text:
-        return False
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return False
-    return "vcs_info" in data
-
-
-def detect_backend(dist: importlib_metadata.Distribution) -> Backend | None:
-    """Map this install to a uv/pip upgrade command, or None if unrecognised.
-
-    Detection order matters: a `uv tool` install lives in a dedicated tools dir
-    and must be upgraded with `uv tool upgrade`, not `uv pip`. Everything else
-    keys off the recorded installer, falling back through pipx (a pip family
-    member with its own upgrade verb) to plain pip.
-
-    For git installs we hand pip/uv-pip the recorded ``git+…`` source instead of
-    the bare name (which would switch the install to the PyPI release). `uv
-    tool` and `pipx` re-pull their recorded source on an upgrade-by-name, so
-    they take the name regardless.
-    """
-    installer = _installer(dist)
-    vcs = _is_vcs_install(dist)
-    # For pip-family installs, the thing to (re)install: the git source if this
-    # was a VCS install, else the package name from the registry.
-    target = _GIT_SOURCE if vcs else _DIST
-    # Wrap the location in separators so `_has(location, "uv")` matches the
-    # path *component* `uv`, not a substring of e.g. `myuvproject`.
-    location = f"{os.sep}{dist.locate_file('')}{os.sep}"
-    have_uv = shutil.which("uv") is not None
-
-    def _has(component: str) -> bool:
-        return f"{os.sep}{component}{os.sep}" in location
-
-    # `uv tool install` — isolated app in uv's tools dir.
-    if have_uv and _has("uv") and _has("tools"):
-        return Backend("uv tool", ["uv", "tool", "upgrade", _DIST])
-
-    # `uv pip install` into a regular environment.
-    if installer == "uv" and have_uv:
-        argv = ["uv", "pip", "install", "--upgrade", target]
-        # A git ref (e.g. a branch) can move without the version changing; force
-        # a fresh pull so `update` isn't a silent no-op on the same tag/commit.
-        if vcs:
-            argv.append("--reinstall-package")
-            argv.append(_DIST)
-        return Backend("uv pip", argv)
-
-    if installer == "pip":
-        # pipx installs record `pip` as the installer but live under pipx's
-        # venvs dir and want `pipx upgrade`.
-        if _has("pipx") and shutil.which("pipx"):
-            return Backend("pipx", ["pipx", "upgrade", _DIST])
-        argv = [sys.executable, "-m", "pip", "install", "--upgrade", target]
-        # Same as uv above: pip treats a same-version git ref as satisfied, so
-        # force a reinstall to actually re-pull the branch/tag.
-        if vcs:
-            argv.append("--force-reinstall")
-        return Backend("pip", argv)
-
-    return None
-
-
 def update(ctx: typer.Context) -> None:
-    """Update frappectl in place using the installer it was set up with.
+    """Update frappectl in place with `uv tool upgrade`.
 
-    Detects whether this install came from uv or pip and runs the matching
-    upgrade command. Refuses (without changing anything) for editable/dev
-    checkouts or when no uv/pip backend can be detected — update those by hand.
+    Refuses (without changing anything) for editable/dev checkouts — update
+    those with git — and when uv isn't available.
     """
     c = get_ctx(ctx)
 
     dist = _dist()
-    if dist is None:
-        raise fail(f"'{_DIST}' is not installed as a package; nothing to update.", 1)
-
-    if _is_editable(dist):
+    if dist is not None and _is_editable(dist):
         raise fail(
             "This is an editable/development install; update it with git "
             "(e.g. `git pull`) instead of `frappectl update`.",
             1,
         )
 
-    backend = detect_backend(dist)
-    if backend is None:
+    if shutil.which("uv") is None:
         raise fail(
-            "Couldn't detect a uv or pip install backend; leaving this install "
-            "untouched. Update frappectl manually with your package manager.",
+            "`frappectl update` needs uv (https://docs.astral.sh/uv/). "
+            "Install uv, or upgrade frappectl with your own package manager.",
             1,
         )
 
-    err_console.print(
-        f"[dim]frappectl {__version__} — updating via {backend.name}: "
-        f"{' '.join(backend.argv)}[/dim]"
-    )
-    if not confirm(c, f"Run `{' '.join(backend.argv)}` to update frappectl?"):
+    cmd = " ".join(_UPGRADE_ARGV)
+    err_console.print(f"[dim]frappectl {__version__} — updating: {cmd}[/dim]")
+    if not confirm(c, f"Run `{cmd}` to update frappectl?"):
         raise fail("Update cancelled.", 1)
 
-    try:
-        proc = subprocess.run(backend.argv)
-    except FileNotFoundError:
-        raise fail(f"'{backend.argv[0]}' not found on PATH.", 127)
-
+    proc = subprocess.run(_UPGRADE_ARGV)
     if proc.returncode != 0:
-        raise fail(
-            f"Update failed: `{' '.join(backend.argv)}` exited {proc.returncode}.",
-            proc.returncode,
-        )
+        raise fail(f"Update failed: `{cmd}` exited {proc.returncode}.", proc.returncode)
 
     if c.json:
         print_json(
             {
-                "backend": backend.name,
-                "command": backend.argv,
+                "command": _UPGRADE_ARGV,
                 "previous_version": __version__,
                 "ok": True,
             }
@@ -250,46 +142,28 @@ def _save_cache(data: dict[str, Any]) -> None:
         pass
 
 
-def _fetch_latest_tag(timeout: float = 2.0) -> str | None:
-    """Return the newest ``X.Y.Z`` version tag on the remote, or None.
+def _fetch_latest_release(timeout: float = 2.0) -> str | None:
+    """Return the newest released version on PyPI, or None.
 
-    Uses ``git ls-remote`` — a single round trip with no clone and no auth — and
-    swallows every failure (no git binary, network down, timeout) into None so
-    the caller can treat "couldn't check" and "no newer version" the same way.
+    One GET against PyPI's JSON API — ``info.version`` is the latest non-yanked
+    release, i.e. exactly what a bare-name upgrade would install. Every failure
+    (network down, timeout, unexpected payload) collapses to None so the caller
+    can treat "couldn't check" and "no newer version" the same way.
     """
-    if shutil.which("git") is None:
-        return None
     try:
-        proc = subprocess.run(
-            ["git", "ls-remote", "--tags", "--refs", _REPO_URL],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            # Never let git block on a credential/terminal prompt.
-            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
-        )
-    except (subprocess.SubprocessError, OSError):
+        resp = httpx.get(_PYPI_JSON_URL, timeout=timeout, follow_redirects=True)
+        resp.raise_for_status()
+        version = resp.json()["info"]["version"]
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
         return None
-    if proc.returncode != 0:
-        return None
-
-    best: tuple[int, int, int] | None = None
-    best_str: str | None = None
-    for line in proc.stdout.splitlines():
-        # Each line is "<sha>\trefs/tags/<tag>"; we only need the tag.
-        ref = line.rsplit("/", 1)[-1]
-        parsed = _parse_version(ref)
-        if parsed is not None and (best is None or parsed > best):
-            best = parsed
-            best_str = f"{parsed[0]}.{parsed[1]}.{parsed[2]}"
-    return best_str
+    return version if isinstance(version, str) else None
 
 
 def latest_version(now: float | None = None) -> str | None:
     """Newest available version string, backed by a day-long cache.
 
     The network is touched at most once per ``_CHECK_TTL``. A failed check still
-    records the attempt time, so a machine that's offline won't re-probe git on
+    records the attempt time, so a machine that's offline won't re-probe PyPI on
     every single command for the rest of the day — it keeps serving the last
     known-good answer (if any) until the window elapses.
     """
@@ -298,7 +172,7 @@ def latest_version(now: float | None = None) -> str | None:
     if now - cache.get("checked_at", 0) < _CHECK_TTL:
         return cache.get("latest")
 
-    latest = _fetch_latest_tag()
+    latest = _fetch_latest_release()
     cache["checked_at"] = now
     if latest:
         cache["latest"] = latest
