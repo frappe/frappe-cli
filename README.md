@@ -134,7 +134,7 @@ it won't corrupt `--json` output.
 | `frappectl api <path>` | Call raw v2 APIs: `frappectl api method/<path> -F key=value`. |
 | `frappectl guide` | Print the agent primer; no site or authentication needed. |
 | `frappectl assistant [pi\|claude\|codex]` | Launch a coding agent configured as a Frappe assistant. |
-| `frappectl update` | Self-upgrade through the `uv`/`pip` backend used for installation. |
+| `frappectl update` | Self-upgrade via `uv tool upgrade`. |
 
 ### Filtering
 

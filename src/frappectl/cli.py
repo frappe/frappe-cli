@@ -37,7 +37,7 @@ app.add_typer(method_cmd.app, name="method")
 app.command(name="api", help=api_cmd.api.__doc__)(api_cmd.api)
 # `frappectl guide` — static usage primer; the first thing an agent should run.
 app.command(name="guide", help=guide_cmd.guide.__doc__)(guide_cmd.guide)
-# `frappectl update` — self-upgrade via the uv/pip backend it was installed with.
+# `frappectl update` — self-upgrade via `uv tool upgrade`.
 app.command(name="update", help=update_cmd.update.__doc__)(update_cmd.update)
 # `frappectl assistant [tool] -- <args>` — launch a CLI agent as a Frappe
 # assistant. allow_extra_args/ignore_unknown_options let trailing args (and
