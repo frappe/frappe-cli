@@ -46,9 +46,14 @@ FILES
   frappe-cli file download <File name|/files/url> -o out.pdf   # '-o -' streams to stdout
 
 DISCOVER METHODS
-  frappe-cli method search --query="unread"          # search path/description/docstring
-  frappe-cli method list                              # all methods visible to this session
-  frappe-cli method show frappe.tests.test_api.test   # params, http methods, endpoint
+  Methods come in two kinds: rpc (a dotted path) and doctype (a controller method
+  run against an existing document). Listings show a `kind` and a unified `ref`.
+  frappe-cli method search --query="unread"           # search across both kinds
+  frappe-cli method list                              # global rpc + doctype index
+  frappe-cli method list --doctype "User"             # methods on one DocType (live)
+  frappe-cli method show frappe.tests.test_api.test   # rpc detail: params, endpoint
+  frappe-cli method show --doctype "User" add_comment # doctype method detail
+  frappe-cli method call "User" Administrator add_comment -F comment_type=Comment
 
 RAW API
   frappe-cli api method/frappe.client.get_count -F doctype=User    # -F typed, -f string
