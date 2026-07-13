@@ -55,7 +55,7 @@ def _summary_row(entry: Any) -> dict[str, Any]:
         return {"kind": None, "ref": str(entry), "description": None}
     kind = entry.get("kind")
     if kind == "doctype":
-        ref = f"{entry.get('doctype')}.{entry.get('method')}"
+        ref = f"{entry.get('doctype') or ''}.{entry.get('method') or ''}"
     else:
         ref = entry.get("path") or entry.get("method") or ""
     return {"kind": kind, "ref": ref, "description": entry.get("description")}
