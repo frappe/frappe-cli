@@ -1,0 +1,52 @@
+name: Publish
+
+# Publish to PyPI whenever semantic-release cuts a GitHub release. This fires
+# because release.yml authenticates with a PAT (RELEASE_TOKEN) — releases
+# created with the default GITHUB_TOKEN would not trigger other workflows.
+#
+# Authentication is PyPI "trusted publishing" (OIDC): no API token secret.
+# PyPI must be configured with a trusted publisher for the `frappectl`
+# project pointing at this repo, workflow `publish.yml`, environment `pypi`.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/frappectl/
+    permissions:
+      id-token: write # mint the OIDC token PyPI trusted publishing verifies
+
+    steps:
+      # Build from the released tag, not the branch tip: a commit landing on
+      # develop between the release and this run must not leak into the wheel.
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
+        with:
+          python-version: "3.14"
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      # Catch a broken artifact before it is immortalised on PyPI: install the
+      # wheel into a clean environment and run both entry points.
+      - name: Smoke-test the wheel
+        run: |
+          uvx --from ./dist/frappectl-*.whl frappectl --version
+          uvx --from ./dist/frappectl-*.whl fr guide > /dev/null
+
+      - name: Publish to PyPI
+        run: uv publish
