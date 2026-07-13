@@ -1,6 +1,7 @@
 # frappectl
 
 [![CI](https://github.com/frappe/frappectl/actions/workflows/ci.yml/badge.svg)](https://github.com/frappe/frappectl/actions/workflows/ci.yml)
+[![PyPI Version](https://badge.fury.io/py/frappectl.svg)](https://pypi.org/project/frappectl)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](#license)
 
 A command-line REST API v2 client for Frappe v16+ — built for humans and AI agents.
