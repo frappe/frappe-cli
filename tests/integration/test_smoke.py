@@ -1,6 +1,6 @@
 """End-to-end smoke tests against a live Frappe site.
 
-These drive the *real* CLI as a subprocess (``python -m frappe_cli ...``), the
+These drive the *real* CLI as a subprocess (``python -m frappectl ...``), the
 same way a human or agent would, and talk to an actual Frappe site over HTTP.
 Auth comes from the ``FRAPPE_SITE`` / ``FRAPPE_API_KEY`` / ``FRAPPE_API_SECRET``
 environment variables; the whole module is skipped when they aren't set, so a
@@ -44,7 +44,7 @@ def run(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
     delete ...``).
     """
     return subprocess.run(
-        [sys.executable, "-m", "frappe_cli", *args],
+        [sys.executable, "-m", "frappectl", *args],
         input=stdin,
         capture_output=True,
         text=True,
@@ -55,7 +55,7 @@ def run_json(*args: str, stdin: str | None = None):
     """Run the CLI, assert success, and parse stdout as JSON."""
     proc = run(*args, stdin=stdin)
     assert proc.returncode == 0, (
-        f"`frappe-cli {' '.join(args)}` exited {proc.returncode}\n"
+        f"`frappectl {' '.join(args)}` exited {proc.returncode}\n"
         f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
     )
     return json.loads(proc.stdout)
@@ -94,7 +94,7 @@ def test_api_escape_hatch():
 
 def test_doc_crud_lifecycle():
     # A unique, space-free marker so we can find exactly our record back.
-    marker = f"frappe-cli-smoke-{uuid.uuid4().hex}"
+    marker = f"frappectl-smoke-{uuid.uuid4().hex}"
 
     created = run_json("doc", "create", DOCTYPE, "--set", f"description={marker}")
     name = created["name"]

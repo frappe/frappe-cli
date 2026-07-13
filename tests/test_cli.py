@@ -3,10 +3,10 @@ import pytest
 import respx
 from typer.testing import CliRunner
 
-from frappe_cli.cli import _hoist_globals, app
-from frappe_cli.client import FrappeClient
-from frappe_cli.commands import auth
-from frappe_cli.errors import FrappeError
+from frappectl.cli import _hoist_globals, app
+from frappectl.client import FrappeClient
+from frappectl.commands import auth
+from frappectl.errors import FrappeError
 
 BASE = "http://localhost"
 runner = CliRunner()
@@ -155,8 +155,8 @@ def test_guide_runs_without_auth():
     # No env / profile configured: guide must still work (no client, no network).
     result = runner.invoke(app, ["guide"])
     assert result.exit_code == 0
-    assert "frappe-cli doctype show" in result.stdout
-    assert "frappe-cli api" in result.stdout
+    assert "frappectl doctype show" in result.stdout
+    assert "frappectl api" in result.stdout
 
 
 def test_guide_tells_agents_not_to_touch_credentials():
@@ -283,7 +283,7 @@ def test_error_includes_hint(env):
     assert result.exit_code == 1
     assert "not found" in result.stderr
     assert "tip:" in result.stderr
-    assert "frappe-cli doctype list" in result.stderr
+    assert "frappectl doctype list" in result.stderr
 
 
 @respx.mock

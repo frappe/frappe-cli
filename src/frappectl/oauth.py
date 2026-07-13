@@ -218,7 +218,7 @@ def _result_page(ok: bool, error: str | None) -> bytes:
         msg = f"Login failed{detail}. Return to the terminal for details."
     html = (
         "<!doctype html><html><head><meta charset='utf-8'>"
-        "<title>frappe-cli</title></head>"
+        "<title>frappectl</title></head>"
         f"<body style='font-family:sans-serif;padding:2rem'><p>{msg}</p></body></html>"
     )
     return html.encode("utf-8")
@@ -373,7 +373,7 @@ def register_client(meta: Metadata, redirect: str) -> str:
     if not meta.registration_endpoint:
         raise OAuthError("This site does not offer dynamic client registration.")
     body = {
-        "client_name": "frappe-cli",
+        "client_name": "frappectl",
         "redirect_uris": [redirect],
         "token_endpoint_auth_method": "none",
         "grant_types": ["authorization_code", "refresh_token"],

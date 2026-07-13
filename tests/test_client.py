@@ -2,8 +2,8 @@ import httpx
 import pytest
 import respx
 
-from frappe_cli.client import FrappeClient
-from frappe_cli.errors import FrappeError
+from frappectl.client import FrappeClient
+from frappectl.errors import FrappeError
 
 BASE = "http://localhost"
 

@@ -3,10 +3,10 @@ import pytest
 import respx
 from typer.testing import CliRunner
 
-from frappe_cli import client as client_mod
-from frappe_cli.cli import app
-from frappe_cli.client import FrappeClient
-from frappe_cli.errors import FrappeError
+from frappectl import client as client_mod
+from frappectl.cli import app
+from frappectl.client import FrappeClient
+from frappectl.errors import FrappeError
 
 BASE = "http://localhost"
 runner = CliRunner()
@@ -163,8 +163,8 @@ def _force_human_output(monkeypatch):
     Ctx picks JSON when stdout is not a TTY, and CliRunner never presents one,
     so swap in a Ctx that reports itself interactive.
     """
-    from frappe_cli import cli as cli_mod
-    from frappe_cli.output import Ctx
+    from frappectl import cli as cli_mod
+    from frappectl.output import Ctx
 
     def make_ctx(**kwargs):
         kwargs["json_mode"] = False

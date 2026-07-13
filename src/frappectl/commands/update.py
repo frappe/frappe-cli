@@ -1,4 +1,4 @@
-"""``frappe-cli update`` — upgrade frappe-cli in place via its own installer.
+"""``frappectl update`` — upgrade frappectl in place via its own installer.
 
 The CLI only knows how to drive one of two package backends: uv and pip. We
 work out how *this* install was created (from the ``INSTALLER`` marker and the
@@ -28,11 +28,11 @@ from .. import __version__
 from ..config import config_dir
 from ..output import Ctx, confirm, err_console, fail, get_ctx, print_json
 
-_DIST = "frappe-cli"
+_DIST = "frappectl"
 # Canonical source for git installs. Hardcoded rather than read back from
-# direct_url.json: the repo never moves, and the bare name resolves to an
-# unrelated package on PyPI.
-_GIT_SOURCE = "git+https://github.com/frappe/frappe-cli"
+# direct_url.json: the repo never moves, and a git install should keep tracking
+# git rather than silently switch over to the PyPI release.
+_GIT_SOURCE = "git+https://github.com/frappe/frappectl"
 # The same repo as a plain git URL (git ls-remote doesn't understand pip's
 # `git+` scheme prefix).
 _REPO_URL = _GIT_SOURCE.removeprefix("git+")
@@ -80,9 +80,9 @@ def _installer(dist: importlib_metadata.Distribution) -> str:
 def _is_vcs_install(dist: importlib_metadata.Distribution) -> bool:
     """True if this was installed from a VCS (git) URL rather than a registry.
 
-    A git install is *not* on PyPI under this name (there is an unrelated
-    `frappe-cli` there), so upgrading it by bare name would pull the wrong
-    project — we upgrade from `_GIT_SOURCE` instead. PEP 610's direct_url.json
+    A git install may be ahead of the PyPI release (a branch or unreleased
+    tag), so upgrading it by bare name could silently move it onto the PyPI
+    line — we upgrade from `_GIT_SOURCE` instead. PEP 610's direct_url.json
     carries a `vcs_info` block for exactly these installs.
     """
     text = dist.read_text("direct_url.json")
@@ -104,9 +104,9 @@ def detect_backend(dist: importlib_metadata.Distribution) -> Backend | None:
     member with its own upgrade verb) to plain pip.
 
     For git installs we hand pip/uv-pip the recorded ``git+…`` source instead of
-    the bare name (which would resolve to an unrelated PyPI package). `uv tool`
-    and `pipx` re-pull their recorded source on an upgrade-by-name, so they take
-    the name regardless.
+    the bare name (which would switch the install to the PyPI release). `uv
+    tool` and `pipx` re-pull their recorded source on an upgrade-by-name, so
+    they take the name regardless.
     """
     installer = _installer(dist)
     vcs = _is_vcs_install(dist)
@@ -151,7 +151,7 @@ def detect_backend(dist: importlib_metadata.Distribution) -> Backend | None:
 
 
 def update(ctx: typer.Context) -> None:
-    """Update frappe-cli in place using the installer it was set up with.
+    """Update frappectl in place using the installer it was set up with.
 
     Detects whether this install came from uv or pip and runs the matching
     upgrade command. Refuses (without changing anything) for editable/dev
@@ -166,7 +166,7 @@ def update(ctx: typer.Context) -> None:
     if _is_editable(dist):
         raise fail(
             "This is an editable/development install; update it with git "
-            "(e.g. `git pull`) instead of `frappe-cli update`.",
+            "(e.g. `git pull`) instead of `frappectl update`.",
             1,
         )
 
@@ -174,15 +174,15 @@ def update(ctx: typer.Context) -> None:
     if backend is None:
         raise fail(
             "Couldn't detect a uv or pip install backend; leaving this install "
-            "untouched. Update frappe-cli manually with your package manager.",
+            "untouched. Update frappectl manually with your package manager.",
             1,
         )
 
     err_console.print(
-        f"[dim]frappe-cli {__version__} — updating via {backend.name}: "
+        f"[dim]frappectl {__version__} — updating via {backend.name}: "
         f"{' '.join(backend.argv)}[/dim]"
     )
-    if not confirm(c, f"Run `{' '.join(backend.argv)}` to update frappe-cli?"):
+    if not confirm(c, f"Run `{' '.join(backend.argv)}` to update frappectl?"):
         raise fail("Update cancelled.", 1)
 
     try:
@@ -207,7 +207,7 @@ def update(ctx: typer.Context) -> None:
         )
     else:
         err_console.print(
-            "[green]done.[/green] Re-run `frappe-cli --version` to confirm the "
+            "[green]done.[/green] Re-run `frappectl --version` to confirm the "
             "new version."
         )
 
@@ -339,7 +339,7 @@ def notify_if_outdated(ctx: Ctx) -> None:
         return
 
     err_console.print(
-        f"[yellow]A new version of frappe-cli is available "
-        f"({__version__} → {latest}).[/yellow] Run [bold]frappe-cli update[/bold] "
+        f"[yellow]A new version of frappectl is available "
+        f"({__version__} → {latest}).[/yellow] Run [bold]frappectl update[/bold] "
         "to upgrade."
     )

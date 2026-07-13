@@ -4,7 +4,7 @@ import httpx
 import respx
 from typer.testing import CliRunner
 
-from frappe_cli.cli import app
+from frappectl.cli import app
 
 BASE = "http://localhost"
 runner = CliRunner()

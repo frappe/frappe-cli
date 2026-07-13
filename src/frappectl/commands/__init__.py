@@ -1,0 +1,1 @@
+"""frappectl subcommands."""

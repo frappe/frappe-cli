@@ -4,8 +4,8 @@ import subprocess
 import pytest
 from typer.testing import CliRunner
 
-from frappe_cli.cli import app
-from frappe_cli.commands import update
+from frappectl.cli import app
+from frappectl.commands import update
 
 runner = CliRunner()
 
@@ -30,7 +30,7 @@ class FakeDist:
         if vcs:
             self._files["direct_url.json"] = json.dumps(
                 {
-                    "url": "https://github.com/frappe/frappe-cli",
+                    "url": "https://github.com/frappe/frappectl",
                     "vcs_info": {"vcs": "git", "requested_revision": "main"},
                 }
             )
@@ -50,11 +50,11 @@ def test_detects_uv_tool_install(monkeypatch):
     monkeypatch.setattr(update.shutil, "which", lambda n: "/usr/bin/uv")
     dist = FakeDist(
         installer="uv",
-        location="/home/u/.local/share/uv/tools/frappe-cli/lib/site-packages",
+        location="/home/u/.local/share/uv/tools/frappectl/lib/site-packages",
     )
     backend = update.detect_backend(dist)
     assert backend.name == "uv tool"
-    assert backend.argv == ["uv", "tool", "upgrade", "frappe-cli"]
+    assert backend.argv == ["uv", "tool", "upgrade", "frappectl"]
 
 
 def test_detects_uv_pip_install(monkeypatch):
@@ -62,7 +62,7 @@ def test_detects_uv_pip_install(monkeypatch):
     dist = FakeDist(installer="uv", location="/opt/venv/lib/site-packages")
     backend = update.detect_backend(dist)
     assert backend.name == "uv pip"
-    assert backend.argv == ["uv", "pip", "install", "--upgrade", "frappe-cli"]
+    assert backend.argv == ["uv", "pip", "install", "--upgrade", "frappectl"]
 
 
 def test_uv_installer_without_uv_binary_falls_through(monkeypatch):
@@ -77,29 +77,27 @@ def test_detects_pip_install(monkeypatch):
     dist = FakeDist(installer="pip", location="/opt/venv/lib/site-packages")
     backend = update.detect_backend(dist)
     assert backend.name == "pip"
-    assert backend.argv[-3:] == ["install", "--upgrade", "frappe-cli"]
+    assert backend.argv[-3:] == ["install", "--upgrade", "frappectl"]
     assert backend.argv[1:3] == ["-m", "pip"]
 
 
 def test_detects_pipx_install(monkeypatch):
     monkeypatch.setattr(update.shutil, "which", lambda n: "/usr/bin/pipx")
-    dist = FakeDist(
-        installer="pip", location="/home/u/.local/pipx/venvs/frappe-cli/lib"
-    )
+    dist = FakeDist(installer="pip", location="/home/u/.local/pipx/venvs/frappectl/lib")
     backend = update.detect_backend(dist)
     assert backend.name == "pipx"
-    assert backend.argv == ["pipx", "upgrade", "frappe-cli"]
+    assert backend.argv == ["pipx", "upgrade", "frappectl"]
 
 
 def test_git_pip_install_uses_git_source(monkeypatch):
     # `pip install git+https://…`: must re-pull from git, NOT resolve the bare
-    # name against PyPI (an unrelated `frappe-cli` lives there).
+    # name against PyPI (which would switch the install to the PyPI release).
     monkeypatch.setattr(update.shutil, "which", lambda n: None)
     dist = FakeDist(installer="pip", location="/opt/venv/lib/site-packages", vcs=True)
     backend = update.detect_backend(dist)
     assert backend.name == "pip"
     assert update._GIT_SOURCE in backend.argv
-    assert "frappe-cli" not in backend.argv  # never the bare PyPI name
+    assert "frappectl" not in backend.argv  # never the bare PyPI name
     assert "--force-reinstall" in backend.argv
 
 
@@ -109,7 +107,7 @@ def test_git_uv_pip_install_uses_git_source(monkeypatch):
     backend = update.detect_backend(dist)
     assert backend.name == "uv pip"
     assert update._GIT_SOURCE in backend.argv
-    assert backend.argv[-2:] == ["--reinstall-package", "frappe-cli"]
+    assert backend.argv[-2:] == ["--reinstall-package", "frappectl"]
 
 
 def test_git_uv_tool_install_upgrades_by_name(monkeypatch):
@@ -117,11 +115,11 @@ def test_git_uv_tool_install_upgrades_by_name(monkeypatch):
     monkeypatch.setattr(update.shutil, "which", lambda n: "/usr/bin/uv")
     dist = FakeDist(
         installer="uv",
-        location="/home/u/.local/share/uv/tools/frappe-cli/lib/site-packages",
+        location="/home/u/.local/share/uv/tools/frappectl/lib/site-packages",
         vcs=True,
     )
     backend = update.detect_backend(dist)
-    assert backend.argv == ["uv", "tool", "upgrade", "frappe-cli"]
+    assert backend.argv == ["uv", "tool", "upgrade", "frappectl"]
 
 
 def test_unknown_installer_returns_none(monkeypatch):
@@ -169,7 +167,7 @@ def test_runs_backend_command(monkeypatch):
     monkeypatch.setattr(update.subprocess, "run", fake_run)
     result = runner.invoke(app, ["--yes", "update"])
     assert result.exit_code == 0
-    assert calls == [["uv", "pip", "install", "--upgrade", "frappe-cli"]]
+    assert calls == [["uv", "pip", "install", "--upgrade", "frappectl"]]
 
 
 def test_propagates_failure(monkeypatch):
@@ -284,7 +282,7 @@ def test_latest_version_failed_refresh_keeps_last_known(monkeypatch, tmp_path):
 
 
 def _tty_ctx():
-    from frappe_cli.output import Ctx
+    from frappectl.output import Ctx
 
     ctx = Ctx(json_mode=False, assume_yes=False)
     ctx.is_tty = True

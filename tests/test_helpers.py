@@ -1,7 +1,7 @@
 import pytest
 
-from frappe_cli import helpers
-from frappe_cli.errors import UsageError
+from frappectl import helpers
+from frappectl.errors import UsageError
 
 
 @pytest.mark.parametrize(

@@ -98,7 +98,7 @@ class FrappeClient:
             headers={
                 "Authorization": _auth_header(token_type, token),
                 "Accept": "application/json",
-                "User-Agent": "frappe-cli",
+                "User-Agent": "frappectl",
             },
             timeout=timeout,
             # Follow redirects (e.g. Frappe's trailing-slash normalization).

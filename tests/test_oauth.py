@@ -17,7 +17,7 @@ import httpx
 import pytest
 import respx
 
-from frappe_cli import oauth
+from frappectl import oauth
 
 SITE = "https://site.test"
 WELL_KNOWN = f"{SITE}/.well-known/oauth-authorization-server"

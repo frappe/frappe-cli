@@ -1,4 +1,4 @@
-"""``frappe-cli file`` — upload and download files."""
+"""``frappectl file`` — upload and download files."""
 
 from __future__ import annotations
 

@@ -262,7 +262,7 @@ wheels = [
 ]
 
 [[package]]
-name = "frappe-cli"
+name = "frappectl"
 version = "0.13.0"
 source = { editable = "." }
 dependencies = [

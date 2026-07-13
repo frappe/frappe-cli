@@ -24,45 +24,45 @@ _HINTS: tuple[tuple[str, str], ...] = (
     (
         "authentication failed",
         "Set FRAPPE_SITE/FRAPPE_API_KEY/FRAPPE_API_SECRET, or run "
-        "'frappe-cli auth login <url>'. Check the active profile with 'frappe-cli auth whoami'.",
+        "'frappectl auth login <url>'. Check the active profile with 'frappectl auth whoami'.",
     ),
     (
         "permission",
-        "Confirm who you're authenticated as with 'frappe-cli auth whoami'.",
+        "Confirm who you're authenticated as with 'frappectl auth whoami'.",
     ),
     (
         "not permitted",
-        "Confirm who you're authenticated as with 'frappe-cli auth whoami'.",
+        "Confirm who you're authenticated as with 'frappectl auth whoami'.",
     ),
     (
         "could not reach",
-        "Check the site URL and that it's reachable; 'frappe-cli auth whoami' shows the resolved site.",
+        "Check the site URL and that it's reachable; 'frappectl auth whoami' shows the resolved site.",
     ),
     (
         "does not exist",
-        "List records with 'frappe-cli doc list <DocType>', or verify the DocType "
-        "with 'frappe-cli doctype list'.",
+        "List records with 'frappectl doc list <DocType>', or verify the DocType "
+        "with 'frappectl doctype list'.",
     ),
     (
         "not found",
-        "List records with 'frappe-cli doc list <DocType>', or verify the DocType "
-        "with 'frappe-cli doctype list'.",
+        "List records with 'frappectl doc list <DocType>', or verify the DocType "
+        "with 'frappectl doctype list'.",
     ),
     (
         "mandatory",
-        "See which fields are required with 'frappe-cli doctype show <DocType>'.",
+        "See which fields are required with 'frappectl doctype show <DocType>'.",
     ),
     (
         "value missing",
-        "See which fields are required with 'frappe-cli doctype show <DocType>'.",
+        "See which fields are required with 'frappectl doctype show <DocType>'.",
     ),
     (
         "unknown column",
-        "List valid fieldnames with 'frappe-cli doctype show <DocType>'.",
+        "List valid fieldnames with 'frappectl doctype show <DocType>'.",
     ),
     (
         "invalid field",
-        "List valid fieldnames with 'frappe-cli doctype show <DocType>'.",
+        "List valid fieldnames with 'frappectl doctype show <DocType>'.",
     ),
 )
 
