@@ -12,6 +12,7 @@ import sys
 import time
 from collections.abc import Callable
 from typing import Any, BinaryIO, cast
+from urllib.parse import quote
 
 import httpx
 
@@ -489,6 +490,49 @@ class FrappeClient:
 
     def discovery_show(self, method: str) -> Any:
         return self._discovery_get(f"/api/v2/discovery/method/{method}")
+
+    def discovery_doctype_list(self, doctype: str) -> Any:
+        """List all discoverable methods for one doctype (live introspection).
+
+        Includes both controller-specific and inherited standard methods, so it
+        is not backed by the global discovery cache.
+        """
+        return self._discovery_get(
+            f"/api/v2/discovery/doctype/{quote(doctype, safe='')}"
+        )
+
+    def discovery_doctype_show(self, doctype: str, method: str) -> Any:
+        """Detail document for a single doctype method."""
+        return self._discovery_get(
+            f"/api/v2/discovery/doctype/{quote(doctype, safe='')}"
+            f"/method/{quote(method, safe='')}"
+        )
+
+    def call_document_method(
+        self,
+        doctype: str,
+        name: str,
+        method: str,
+        *,
+        params: dict[str, Any] | None = None,
+        http_method: str = "POST",
+    ) -> Any:
+        """Invoke a whitelisted doctype method against an existing document.
+
+        Targets ``/api/v2/document/{doctype}/{name}/method/{method}`` directly,
+        as advertised by discovery — not the ``run_doc_method`` RPC. Path
+        components are URL-encoded so names containing ``/``, spaces or ``@``
+        are handled correctly.
+        """
+        path = (
+            f"/api/v2/document/{quote(doctype, safe='')}"
+            f"/{quote(name, safe='')}"
+            f"/method/{quote(method, safe='')}"
+        )
+        verb = http_method.upper()
+        if verb == "GET":
+            return self.request("GET", path, params=params)
+        return self.request(verb, path, json_body=params or {})
 
     def discovery_supported(self) -> bool:
         """True if this site exposes method discovery (root is not a 404)."""

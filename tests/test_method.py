@@ -199,6 +199,256 @@ def test_method_show_omits_source_section_when_absent(env, monkeypatch):
     assert "Source" not in result.output
 
 
+# --- unified index / tagged union ----------------------------------------
+
+
+@respx.mock
+def test_method_list_renders_both_kinds_human(env, monkeypatch):
+    _force_human_output(monkeypatch)
+    respx.get(f"{BASE}/api/v2/discovery/method").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "type": "method_index",
+                    "methods": [
+                        {
+                            "kind": "rpc",
+                            "path": "frappe.tests.test_api.test",
+                            "description": "Exercise RPC.",
+                        },
+                        {
+                            "kind": "doctype",
+                            "doctype": "User",
+                            "method": "populate_role_profile_roles",
+                        },
+                    ],
+                }
+            },
+        )
+    )
+    result = runner.invoke(app, ["method", "list"])
+    assert result.exit_code == 0
+    # RPC ref is the dotted path; doctype ref is Doctype.method.
+    assert "frappe.tests.test_api.test" in result.output
+    assert "User.populate_role_profile_roles" in result.output
+
+
+@respx.mock
+def test_method_search_renders_doctype_kind(env, monkeypatch):
+    _force_human_output(monkeypatch)
+    respx.get(f"{BASE}/api/v2/discovery/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "results": [
+                        {
+                            "kind": "doctype",
+                            "doctype": "User",
+                            "method": "populate_role_profile_roles",
+                            "description": "First line.",
+                        }
+                    ]
+                }
+            },
+        )
+    )
+    result = runner.invoke(
+        app, ["method", "search", "-q", "User populate_role_profile_roles"]
+    )
+    assert result.exit_code == 0
+    assert "doctype" in result.output
+    assert "User.populate_role_profile_roles" in result.output
+
+
+# --- doctype-scoped listing & detail --------------------------------------
+
+
+@respx.mock
+def test_method_list_doctype_hits_scoped_endpoint(env):
+    route = respx.get(f"{BASE}/api/v2/discovery/doctype/User").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "type": "method_index",
+                    "doctype": "User",
+                    "methods": [
+                        {"kind": "doctype", "doctype": "User", "method": "add_comment"}
+                    ],
+                }
+            },
+        )
+    )
+    result = runner.invoke(app, ["--json", "method", "list", "--doctype", "User"])
+    assert result.exit_code == 0
+    assert route.called
+    assert "add_comment" in result.stdout
+
+
+@respx.mock
+def test_method_list_doctype_url_encodes_name(env):
+    route = respx.get(f"{BASE}/api/v2/discovery/doctype/Sales%20Invoice").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"type": "method_index", "methods": []}}
+        )
+    )
+    result = runner.invoke(
+        app, ["--json", "method", "list", "--doctype", "Sales Invoice"]
+    )
+    assert result.exit_code == 0
+    assert route.called
+
+
+@respx.mock
+def test_method_list_doctype_404_when_supported_reports_unknown(env):
+    respx.get(f"{BASE}/api/v2/discovery/doctype/Nope").mock(
+        return_value=httpx.Response(404)
+    )
+    respx.get(f"{BASE}/api/v2/discovery").mock(
+        return_value=httpx.Response(200, json={"data": {"type": "discovery"}})
+    )
+    result = runner.invoke(app, ["--json", "method", "list", "--doctype", "Nope"])
+    assert result.exit_code == 1
+    assert "not found or has no discoverable methods" in result.stderr
+
+
+@respx.mock
+def test_method_show_doctype_detail_json(env):
+    respx.get(f"{BASE}/api/v2/discovery/doctype/User/method/add_comment").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "type": "method",
+                    "kind": "doctype",
+                    "doctype": "User",
+                    "method": "add_comment",
+                    "defined_in": "frappe.model.document.Document",
+                    "endpoint": "/api/v2/document/User/{name}/method/add_comment",
+                    "http_methods": ["GET", "POST"],
+                    "permission": {"GET": "read", "POST": "write"},
+                    "params": [],
+                }
+            },
+        )
+    )
+    result = runner.invoke(
+        app, ["--json", "method", "show", "--doctype", "User", "add_comment"]
+    )
+    assert result.exit_code == 0
+    assert "frappe.model.document.Document" in result.stdout
+
+
+@respx.mock
+def test_method_show_doctype_detail_human_shows_defined_in(env, monkeypatch):
+    _force_human_output(monkeypatch)
+    respx.get(f"{BASE}/api/v2/discovery/doctype/User/method/add_comment").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "kind": "doctype",
+                    "doctype": "User",
+                    "method": "add_comment",
+                    "defined_in": "frappe.model.document.Document",
+                    "http_methods": ["GET", "POST"],
+                    "permission": {"GET": "read", "POST": "write"},
+                    "params": [
+                        {"name": "comment_type", "required": False, "type": "str"}
+                    ],
+                }
+            },
+        )
+    )
+    result = runner.invoke(app, ["method", "show", "--doctype", "User", "add_comment"])
+    assert result.exit_code == 0
+    assert "defined_in" in result.output
+    assert "comment_type" in result.output
+
+
+# --- invocation -----------------------------------------------------------
+
+
+@respx.mock
+def test_method_call_picks_post_and_invokes_document_endpoint(env):
+    respx.get(f"{BASE}/api/v2/discovery/doctype/User/method/add_comment").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "kind": "doctype",
+                    "doctype": "User",
+                    "method": "add_comment",
+                    "http_methods": ["GET", "POST"],
+                }
+            },
+        )
+    )
+    invoke = respx.post(
+        f"{BASE}/api/v2/document/User/Administrator/method/add_comment"
+    ).mock(return_value=httpx.Response(200, json={"data": {"name": "c1"}}))
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "method",
+            "call",
+            "User",
+            "Administrator",
+            "add_comment",
+            "-F",
+            "comment_type=Comment",
+        ],
+    )
+    assert result.exit_code == 0, result.stderr
+    assert invoke.called
+    import json as _json
+
+    assert _json.loads(invoke.calls.last.request.content)["comment_type"] == "Comment"
+
+
+@respx.mock
+def test_method_call_explicit_get_skips_detail_fetch(env):
+    detail = respx.get(
+        f"{BASE}/api/v2/discovery/doctype/User/method/get_something"
+    ).mock(return_value=httpx.Response(200, json={"data": {}}))
+    invoke = respx.get(
+        f"{BASE}/api/v2/document/User/Administrator/method/get_something"
+    ).mock(return_value=httpx.Response(200, json={"data": {"ok": 1}}))
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "method",
+            "call",
+            "User",
+            "Administrator",
+            "get_something",
+            "-X",
+            "GET",
+        ],
+    )
+    assert result.exit_code == 0
+    assert invoke.called
+    # With an explicit verb we don't need to consult discovery detail.
+    assert not detail.called
+
+
+@respx.mock
+def test_method_call_url_encodes_document_name(env):
+    invoke = respx.post(
+        f"{BASE}/api/v2/document/User/a%2Fb%40x/method/add_comment"
+    ).mock(return_value=httpx.Response(200, json={"data": {}}))
+    result = runner.invoke(
+        app,
+        ["--json", "method", "call", "User", "a/b@x", "add_comment", "-X", "POST"],
+    )
+    assert result.exit_code == 0
+    assert invoke.called
+
+
 @respx.mock
 def test_method_show_json_preserved_after_503_retry(env):
     respx.get(f"{BASE}/api/v2/discovery/method/frappe.ping").mock(
