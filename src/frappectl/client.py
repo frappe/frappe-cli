@@ -169,10 +169,32 @@ class FrappeClient:
             else:
                 messages.append(str(entry))
         for message in messages:
-            # Strip ANSI/control characters so a hostile server cannot inject
-            # terminal escape sequences into the user's terminal.
-            safe = "".join(c for c in message if c >= " " or c in "\t\n")
-            self._dbg(f"  [server] {safe}")
+            self._dbg(f"  [server] {_strip_control(message)}")
+
+    def _emit_server_error(self, body: Any) -> None:
+        """Surface the full server-side traceback of a failed request.
+
+        A v2 error body is ``{"errors": [{"type", "message", "exception", ...}]}``
+        where ``exception`` is the full server traceback. :func:`extract_message`
+        reduces that to a single human line for the raised error, so under
+        ``--debug`` we print the untruncated traceback here (to stderr) before it
+        is lost — otherwise a failing whitelisted method gives the caller no way
+        to see what actually blew up on the server.
+        """
+        if not self.debug or not isinstance(body, dict):
+            return
+        errors = body.get("errors")
+        if not isinstance(errors, list):
+            return
+        for err in errors:
+            if not isinstance(err, dict):
+                continue
+            trace = err.get("exception") or err.get("exc")
+            if not isinstance(trace, str) or not trace.strip():
+                continue
+            self._dbg("  [server traceback]")
+            for line in _strip_control(trace).splitlines():
+                self._dbg(f"    {line}")
 
     # --- core request ------------------------------------------------------
 
@@ -247,6 +269,7 @@ class FrappeClient:
                 body = resp.text
 
         if resp.status_code >= 400:
+            self._emit_server_error(body)
             if resp.status_code == 401:
                 raise FrappeError(
                     "Authentication failed (401). Check the API key/secret for "
@@ -283,6 +306,7 @@ class FrappeClient:
                 if resp.status_code >= 400:
                     resp.read()
                     body = _safe_json(resp)
+                    self._emit_server_error(body)
                     raise FrappeError(
                         extract_message(body, resp.status_code), resp.status_code
                     )
@@ -347,6 +371,7 @@ class FrappeClient:
 
         if resp.status_code >= 400:
             body = _safe_json(resp)
+            self._emit_server_error(body)
             raise FrappeError(extract_message(body, resp.status_code), resp.status_code)
 
         body = resp.json()
@@ -574,6 +599,12 @@ class FrappeClient:
                 files={"file": (filename, fileobj)},
             ),
         )
+
+
+def _strip_control(text: str) -> str:
+    """Drop ANSI/control characters so a hostile server cannot inject terminal
+    escape sequences into the user's terminal. Tabs and newlines are kept."""
+    return "".join(c for c in text if c >= " " or c in "\t\n")
 
 
 def _clean_params(
