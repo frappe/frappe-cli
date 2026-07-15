@@ -187,6 +187,54 @@ def test_debug_requests_sql_and_emits_server_debug(capsys):
 
 
 @respx.mock
+def test_debug_emits_server_traceback_on_error(capsys):
+    # A whitelisted method that blows up server-side returns a v2 error body
+    # carrying the full traceback in ``exception``. With debug on, the whole
+    # traceback is printed to stderr so the caller can see what actually failed.
+    respx.get(f"{BASE}/api/v2/method/suite.mail.api.mail.get_all_inbox_threads").mock(
+        return_value=httpx.Response(
+            500,
+            json={
+                "errors": [
+                    {
+                        "type": "KeyError",
+                        "message": "'thread_id'",
+                        "exception": (
+                            "Traceback (most recent call last):\n"
+                            '  File "mail.py", line 42, in get_all_inbox_threads\n'
+                            "    return threads['thread_id']\n"
+                            "KeyError: 'thread_id'"
+                        ),
+                    }
+                ]
+            },
+        )
+    )
+    with pytest.raises(FrappeError):
+        FrappeClient(BASE, "k:s", debug=True).call_method(
+            "suite.mail.api.mail.get_all_inbox_threads", http_method="GET"
+        )
+    err = capsys.readouterr().err
+    assert "[server traceback]" in err
+    assert "Traceback (most recent call last):" in err
+    assert "KeyError: 'thread_id'" in err
+
+
+@respx.mock
+def test_no_server_traceback_without_debug(capsys):
+    respx.get(f"{BASE}/api/v2/method/x.y").mock(
+        return_value=httpx.Response(
+            500,
+            json={"errors": [{"exception": "Traceback...\nKeyError: 'z'"}]},
+        )
+    )
+    with pytest.raises(FrappeError):
+        client().call_method("x.y", http_method="GET")
+    err = capsys.readouterr().err
+    assert "traceback" not in err.lower()
+
+
+@respx.mock
 def test_no_debug_param_or_output_by_default(capsys):
     route = respx.get(f"{BASE}/api/v2/document/ToDo").mock(
         return_value=httpx.Response(200, json={"data": [], "has_next_page": False})
