@@ -40,7 +40,6 @@ def test_parse_set():
         ("phone=0123456789", ["phone", "=", "0123456789"]),
         ("code=007", ["code", "=", "007"]),
         ("neg=-007", ["neg", "=", "-007"]),
-        # But plain numbers and normal decimals still coerce.
         ("n=0", ["n", "=", 0]),
         ("f=0.5", ["f", "=", 0.5]),
         ("n=10", ["n", "=", 10]),

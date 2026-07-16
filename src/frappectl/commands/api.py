@@ -74,8 +74,6 @@ def api(
         except (OSError, json.JSONDecodeError) as e:
             raise fail(f"Could not read --input: {e}", 2)
 
-    # Default GET (params ride along as query string); a request body (--input)
-    # implies POST. Use --method to force a verb explicitly.
     http_method = (method or ("POST" if body is not None else "GET")).upper()
 
     clean_path = path.lstrip("/")

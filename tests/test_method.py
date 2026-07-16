@@ -25,11 +25,7 @@ def env(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_sleep(monkeypatch):
-    # Never actually sleep during retry tests.
     monkeypatch.setattr(client_mod.time, "sleep", lambda _s: None)
-
-
-# --- client ---------------------------------------------------------------
 
 
 @respx.mock
@@ -80,9 +76,6 @@ def test_discovery_gives_up_after_max_retries():
 def test_discovery_supported_false_on_404():
     respx.get(f"{BASE}/api/v2/discovery").mock(return_value=httpx.Response(404))
     assert _client().discovery_supported() is False
-
-
-# --- CLI ------------------------------------------------------------------
 
 
 @respx.mock
@@ -199,9 +192,6 @@ def test_method_show_omits_source_section_when_absent(env, monkeypatch):
     assert "Source" not in result.output
 
 
-# --- unified index / tagged union ----------------------------------------
-
-
 @respx.mock
 def test_method_list_renders_both_kinds_human(env, monkeypatch):
     _force_human_output(monkeypatch)
@@ -229,7 +219,6 @@ def test_method_list_renders_both_kinds_human(env, monkeypatch):
     )
     result = runner.invoke(app, ["method", "list"])
     assert result.exit_code == 0
-    # RPC ref is the dotted path; doctype ref is Doctype.method.
     assert "frappe.tests.test_api.test" in result.output
     assert "User.populate_role_profile_roles" in result.output
 
@@ -260,9 +249,6 @@ def test_method_search_renders_doctype_kind(env, monkeypatch):
     assert result.exit_code == 0
     assert "doctype" in result.output
     assert "User.populate_role_profile_roles" in result.output
-
-
-# --- doctype-scoped listing & detail --------------------------------------
 
 
 @respx.mock
@@ -368,9 +354,6 @@ def test_method_show_doctype_detail_human_shows_defined_in(env, monkeypatch):
     assert "comment_type" in result.output
 
 
-# --- invocation -----------------------------------------------------------
-
-
 @respx.mock
 def test_method_call_picks_post_and_invokes_document_endpoint(env):
     invoke = respx.post(
@@ -423,7 +406,6 @@ def test_method_call_explicit_get_skips_detail_fetch(env):
     )
     assert result.exit_code == 0
     assert invoke.called
-    # With an explicit verb we don't need to consult discovery detail.
     assert not detail.called
 
 
@@ -453,7 +435,6 @@ def test_method_call_url_encodes_document_name(env):
 
 @respx.mock
 def test_method_call_rpc_defaults_to_post(env):
-    # No -X and no --doctype: RPC path defaults to POST without any discovery.
     invoke = respx.post(f"{BASE}/api/v2/method/gameplan.api.get_unread_count").mock(
         return_value=httpx.Response(200, json={"data": {"count": 3}})
     )
@@ -488,13 +469,11 @@ def test_method_call_rpc_explicit_get_hits_method_endpoint(env):
     )
     assert result.exit_code == 0, result.stderr
     assert invoke.called
-    # Explicit verb short-circuits the discovery lookup.
     assert not detail.called
 
 
 @respx.mock
 def test_method_call_read_only_defaults_to_get(monkeypatch):
-    # A read-only session cannot POST, so an unqualified call falls back to GET.
     monkeypatch.setenv("FRAPPE_SITE", BASE)
     monkeypatch.setenv("FRAPPE_API_KEY", "k")
     monkeypatch.setenv("FRAPPE_API_SECRET", "s")

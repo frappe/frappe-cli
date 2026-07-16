@@ -34,7 +34,6 @@ from ..session import get_client
 
 app = typer.Typer(no_args_is_help=True, help="Discover and inspect API methods.")
 
-# Human-facing messages for the distinct 404 shapes discovery can produce.
 _NOT_AVAILABLE = "Method discovery is not available on this site."
 _METHOD_NOT_FOUND = "Method not found or not visible to this session."
 

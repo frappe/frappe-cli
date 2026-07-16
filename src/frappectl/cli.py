@@ -33,11 +33,8 @@ app.add_typer(doctype.app, name="doctype")
 app.add_typer(file.app, name="file")
 app.add_typer(report.app, name="report")
 app.add_typer(method_cmd.app, name="method")
-# `frappectl api <path>` — single command, mounted directly.
 app.command(name="api", help=api_cmd.api.__doc__)(api_cmd.api)
-# `frappectl guide` — static usage primer; the first thing an agent should run.
 app.command(name="guide", help=guide_cmd.guide.__doc__)(guide_cmd.guide)
-# `frappectl update` — self-upgrade via `uv tool upgrade`.
 app.command(name="update", help=update_cmd.update.__doc__)(update_cmd.update)
 # `frappectl assistant [tool] -- <args>` — launch a CLI agent as a Frappe
 # assistant. allow_extra_args/ignore_unknown_options let trailing args (and
@@ -79,8 +76,6 @@ def _root(
 ) -> None:
     """Global options apply to every subcommand."""
     ctx.obj = Ctx(json_mode=json_out, profile=site, debug=debug)
-    # Passive, best-effort "a newer version exists" nudge. No-op in JSON/piped
-    # mode and for dev checkouts; network-throttled to once a day.
     update_cmd.notify_if_outdated(ctx.obj)
 
 

@@ -109,7 +109,6 @@ class UsageError(FrappeError):
 
 def strip_html(text: str) -> str:
     text = _TAG_RE.sub("", text)
-    # Collapse the few entities Frappe commonly emits.
     for a, b in (
         ("&amp;", "&"),
         ("&lt;", "<"),
@@ -163,7 +162,6 @@ def extract_message(
         return text or f"HTTP {status_code}"
 
     if isinstance(body, dict):
-        # v2 style.
         errors = body.get("errors")
         if isinstance(errors, list) and errors:
             parts: list[str] = []

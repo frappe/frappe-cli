@@ -27,9 +27,6 @@ class FakeDist:
         return self._files.get(name)
 
 
-# --- update command -------------------------------------------------------
-
-
 def test_refuses_editable(monkeypatch):
     monkeypatch.setattr(update, "_dist", lambda: FakeDist(editable=True))
     result = runner.invoke(app, ["update"])
@@ -84,9 +81,6 @@ def test_json_output(monkeypatch):
     assert payload["command"] == _UPGRADE
 
 
-# --- passive update notification ------------------------------------------
-
-
 def test_parse_version_tolerates_prefix_and_suffix():
     assert update._parse_version("v1.2.3") == (1, 2, 3)
     assert update._parse_version("1.2.3") == (1, 2, 3)
@@ -135,7 +129,6 @@ def test_latest_version_uses_fresh_cache(monkeypatch, tmp_path):
     cache = tmp_path / "update-check.json"
     cache.write_text(json.dumps({"checked_at": 1000.0, "latest": "1.0.0"}))
     monkeypatch.setattr(update, "_cache_file", lambda: cache)
-    # Any network call would be a bug: cache is fresh relative to `now`.
     monkeypatch.setattr(
         update, "_fetch_latest_release", lambda *a, **k: pytest.fail("hit network")
     )
@@ -149,7 +142,6 @@ def test_latest_version_refreshes_stale_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(update, "_fetch_latest_release", lambda *a, **k: "1.0.0")
     now = 1000.0 + update._CHECK_TTL + 1
     assert update.latest_version(now=now) == "1.0.0"
-    # New answer and attempt time are persisted.
     saved = json.loads(cache.read_text())
     assert saved["latest"] == "1.0.0"
     assert saved["checked_at"] == now
@@ -161,7 +153,6 @@ def test_latest_version_failed_refresh_keeps_last_known(monkeypatch, tmp_path):
     monkeypatch.setattr(update, "_cache_file", lambda: cache)
     monkeypatch.setattr(update, "_fetch_latest_release", lambda *a, **k: None)
     now = 1000.0 + update._CHECK_TTL + 1
-    # Offline: keep the last known version but bump checked_at to throttle retries.
     assert update.latest_version(now=now) == "0.8.0"
     assert json.loads(cache.read_text())["checked_at"] == now
 
@@ -206,7 +197,7 @@ def test_notify_silent_in_json_mode(monkeypatch):
     monkeypatch.setattr(update, "latest_version", fail_check)
     ctx = _tty_ctx()
     ctx.json = True
-    update.notify_if_outdated(ctx)  # returns before touching the network
+    update.notify_if_outdated(ctx)
 
 
 def test_notify_silent_for_editable(monkeypatch):

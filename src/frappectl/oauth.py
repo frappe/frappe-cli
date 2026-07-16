@@ -47,9 +47,8 @@ DEFAULT_LOOPBACK_PORT = 9876
 _LOOPBACK_HOST = "127.0.0.1"
 _CALLBACK_PATH = "/callback"
 
-# How long to wait for the user to finish the browser leg before giving up.
-LOGIN_TIMEOUT = 300.0  # seconds
-_POLL_INTERVAL = 1.0  # seconds; how often the loopback server wakes to re-check
+LOGIN_TIMEOUT = 300.0
+_POLL_INTERVAL = 1.0
 
 # Scopes: ``openid`` lets us confirm identity via the userinfo endpoint;
 # ``all`` grants the same API surface an API key would.
@@ -94,7 +93,7 @@ class Tokens:
 
     access_token: str
     refresh_token: str
-    expires_at: float  # epoch seconds
+    expires_at: float
     token_type: str = "bearer"
 
     def with_refresh_token(self, refresh_token: str) -> "Tokens":
@@ -109,11 +108,7 @@ class Metadata:
     token_endpoint: str
     revocation_endpoint: str
     userinfo_endpoint: str
-    # Empty when the site does not offer dynamic client registration.
     registration_endpoint: str = ""
-
-
-# --- discovery -------------------------------------------------------------
 
 
 def discover(site: str) -> Metadata:
@@ -176,9 +171,6 @@ def _fallback_metadata(site: str) -> Metadata:
     )
 
 
-# --- loopback server -------------------------------------------------------
-
-
 class _LoopbackServer(HTTPServer):
     """One-shot server that captures the OAuth redirect query parameters."""
 
@@ -222,9 +214,6 @@ def _result_page(ok: bool, error: str | None) -> bytes:
         f"<body style='font-family:sans-serif;padding:2rem'><p>{msg}</p></body></html>"
     )
     return html.encode("utf-8")
-
-
-# --- login / refresh -------------------------------------------------------
 
 
 def redirect_uri(port: int = DEFAULT_LOOPBACK_PORT) -> str:
@@ -409,9 +398,6 @@ def revoke(site: str, token: str) -> None:
     except (httpx.HTTPError, OAuthError):
         # Logout should always succeed locally even if the server is unreachable.
         pass
-
-
-# --- helpers ---------------------------------------------------------------
 
 
 def _tokens_from(token: Any) -> Tokens:

@@ -76,7 +76,6 @@ def download(
     file_url = ref
     file_name = None
     if not ref.startswith("/") and "://" not in ref:
-        # Treat as a File document name.
         try:
             doc = client.get_document("File", ref)
         except FrappeError as e:

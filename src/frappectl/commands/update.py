@@ -32,7 +32,7 @@ _PYPI_JSON_URL = f"https://pypi.org/pypi/{_DIST}/json"
 # Passive update check: we ask PyPI for the latest release at most once per
 # this window, cache the answer, and nudge interactive users when they lag
 # behind. Kept deliberately long so the check never becomes a hot path.
-_CHECK_TTL = 24 * 60 * 60  # one day
+_CHECK_TTL = 24 * 60 * 60
 _CHECK_CACHE = "update-check.json"
 
 _UPGRADE_ARGV = ["uv", "tool", "upgrade", _DIST]
@@ -101,8 +101,6 @@ def update(ctx: typer.Context) -> None:
             "new version."
         )
 
-
-# --- passive update notification ------------------------------------------
 
 _VERSION_RE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
 
