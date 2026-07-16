@@ -11,8 +11,8 @@ Resolution order for the active site/credentials:
    OAuth tokens (``see`` :mod:`frappectl.oauth`). There is **no plaintext secret
    fallback** — a broken keyring means you must use environment variables.
 
-OAuth access tokens are short-lived, so :func:`resolve` refreshes them
-proactively (before they expire) and persists the new tokens before returning.
+OAuth access tokens are short-lived. Resolution returns their stored state;
+the credential provider owns refresh timing and persistence.
 """
 
 from __future__ import annotations
@@ -416,14 +416,6 @@ def config_path() -> Path:
     return config_dir() / "config.json"
 
 
-def _load() -> dict[str, Any]:
-    return JsonConfigStore().load()
-
-
-def _save(data: dict[str, Any]) -> None:
-    JsonConfigStore().save(data)
-
-
 def _keyring() -> ModuleType:
     try:
         import keyring
@@ -434,22 +426,6 @@ def _keyring() -> ModuleType:
             "The 'keyring' package is unavailable. Use environment variables "
             "(FRAPPE_SITE, FRAPPE_API_KEY, FRAPPE_API_SECRET) instead."
         ) from e
-
-
-def _store_secret(profile: str, token: str) -> None:
-    KeyringSecretStore().set(profile, token)
-
-
-def _read_secret(profile: str) -> str | None:
-    return KeyringSecretStore().get(profile)
-
-
-def _delete_secret(profile: str) -> None:
-    KeyringSecretStore().delete(profile)
-
-
-def _delete_legacy_secret(profile: str) -> None:
-    KeyringSecretStore._delete_from(_keyring(), _LEGACY_KEYRING_SERVICE, profile)
 
 
 def list_profiles() -> tuple[dict[str, dict[str, Any]], str | None]:
@@ -543,18 +519,6 @@ def oauth_access_token(name: str) -> str | None:
     return _read_oauth_blob(name).get("access_token") or None
 
 
-def _oauth_blob(tokens: oauth.Tokens, client_id: str) -> str:
-    return json.dumps(
-        {
-            "access_token": tokens.access_token,
-            "refresh_token": tokens.refresh_token,
-            "expires_at": tokens.expires_at,
-            "token_type": tokens.token_type,
-            "client_id": client_id,
-        }
-    )
-
-
 def _read_oauth_blob(name: str) -> dict[str, Any]:
     raw = _repository().credential(name)
     if not raw:
@@ -607,11 +571,6 @@ def _env_truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _normalize_site(site: str) -> str:
-    """Compatibility shim for callers that have not migrated to ``SiteURL``."""
-    return str(SiteURL.parse(site))
-
-
 class ProfileResolver:
     """Resolve environment/profile precedence without owning persistence."""
 
@@ -645,7 +604,7 @@ def _resolve(profile: str | None = None, interactive: bool = True) -> Credential
                 "FRAPPE_SITE is set but FRAPPE_API_KEY / FRAPPE_API_SECRET are missing."
             )
         return Credentials(
-            _normalize_site(env_site),
+            str(SiteURL.parse(env_site)),
             ApiKeyCredential(key, secret),
             source="env",
             read_only=_env_truthy(os.environ.get("FRAPPE_READ_ONLY")),
@@ -678,7 +637,7 @@ def _resolve(profile: str | None = None, interactive: bool = True) -> Credential
     if profiles[name].get("auth") == "oauth":
         return _resolve_oauth(name, profiles[name])
 
-    token = _read_secret(name)
+    token = _repository().credential(name)
     if not token or ":" not in token:
         raise ConfigError(
             f"No stored credentials for profile '{name}'. "
@@ -686,7 +645,7 @@ def _resolve(profile: str | None = None, interactive: bool = True) -> Credential
         )
     api_key, api_secret = token.split(":", 1)
     return Credentials(
-        _normalize_site(profiles[name]["site"]),
+        str(SiteURL.parse(profiles[name]["site"])),
         ApiKeyCredential(api_key, api_secret),
         source=name,
         description=profiles[name].get("description", ""),
@@ -704,7 +663,7 @@ def _resolve_oauth(name: str, entry: dict[str, Any]) -> Credentials:
         expires_at = float(blob.get("expires_at") or 0)
     except (TypeError, ValueError):
         expires_at = 0.0
-    site = _normalize_site(entry["site"])
+    site = str(SiteURL.parse(entry["site"]))
 
     if not access_token:
         raise ConfigError(

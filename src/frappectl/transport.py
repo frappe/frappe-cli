@@ -36,12 +36,6 @@ _DEBUG_BODY_LIMIT = 2000
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
-def _is_local_host(host: str) -> bool:
-    """Compatibility shim for callers that have not migrated to ``SiteURL``."""
-    authority = f"[{host}]" if ":" in host and not host.startswith("[") else host
-    return SiteURL.parse(f"http://{authority}").is_local
-
-
 def _auth_header(token_type: str, token: str) -> str:
     """The Authorization header value for a credential.
 
