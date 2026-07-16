@@ -82,6 +82,8 @@ def test_claude_gets_append_flag():
     argv = _argv(result)
     assert argv[0] == "claude"
     assert "--append-system-prompt" in argv
+    # claude's own default system prompt is suppressed with an empty one.
+    assert argv[argv.index("--system-prompt") + 1] == ""
 
 
 def test_passthrough_after_ddash_is_appended():
