@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import dataclass
 from typing import Any
 
 import typer
@@ -22,8 +23,59 @@ err_console = Console(stderr=True)
 _out_console = Console()
 
 
-class Ctx:
-    """Holds run-wide output state, stashed on the Typer context object."""
+class Output:
+    """Own JSON/TTY rendering and the stdout/stderr contract."""
+
+    def __init__(self, json_mode: bool, *, is_tty: bool | None = None):
+        self.is_tty = sys.stdout.isatty() if is_tty is None else is_tty
+        self.json = json_mode or not self.is_tty
+
+    def emit_json(self, value: object) -> None:
+        print_json(value)
+
+    def emit_list(
+        self,
+        rows: list[dict[str, Any]],
+        columns: list[str] | None,
+        title: str | None = None,
+    ) -> None:
+        if self.json:
+            self.emit_json(rows)
+            return
+        render_rows(rows, columns or (list(rows[0].keys()) if rows else []), title)
+
+    def emit_record(self, record: Any, title: str | None = None) -> None:
+        if self.json:
+            self.emit_json(record)
+        elif isinstance(record, dict):
+            render_record(record, title=title)
+        else:
+            _out_console.print(_scalar(record))
+
+    def progress(self, message: str) -> None:
+        err_console.print(f"[dim]{message}[/dim]")
+
+    def success(self, message: str) -> None:
+        err_console.print(f"[green]{message}[/green]")
+
+    def error(self, message: str, code: int = 1) -> "typer.Exit":
+        from .errors import FrappeError, error_hint
+
+        err_console.print(f"[red]error:[/red] {message}")
+        hint = error_hint(message)
+        if hint:
+            err_console.print(f"[dim]tip:[/dim] {hint}")
+        exc = sys.exc_info()[1]
+        if isinstance(exc, FrappeError) and exc.has_server_exception:
+            err_console.print(
+                "[dim]tip:[/dim] re-run with --debug to see the full server traceback."
+            )
+        return typer.Exit(code)
+
+
+@dataclass(init=False)
+class ApplicationContext:
+    """Run-wide dependencies and user-selected execution state."""
 
     def __init__(
         self,
@@ -31,15 +83,36 @@ class Ctx:
         profile: str | None = None,
         debug: bool = False,
     ):
+        from .session import ClientFactory
+
         self.profile = profile
         self.debug = debug
-        self.json = json_mode or not sys.stdout.isatty()
-        self.is_tty = sys.stdout.isatty()
+        self.output = Output(json_mode)
+        self.client_factory = ClientFactory()
+
+    @property
+    def json(self) -> bool:
+        return self.output.json
+
+    @json.setter
+    def json(self, value: bool) -> None:
+        self.output.json = value
+
+    @property
+    def is_tty(self) -> bool:
+        return self.output.is_tty
+
+    @is_tty.setter
+    def is_tty(self, value: bool) -> None:
+        self.output.is_tty = value
 
 
-def get_ctx(ctx: typer.Context) -> Ctx:
+Ctx = ApplicationContext
+
+
+def get_ctx(ctx: typer.Context) -> ApplicationContext:
     obj = ctx.obj
-    assert isinstance(obj, Ctx)
+    assert isinstance(obj, ApplicationContext)
     return obj
 
 
@@ -57,20 +130,7 @@ def fail(message: str, code: int = 1) -> "typer.Exit":
     off), nudge the caller toward it. Hints go to stderr, so they never pollute
     JSON on stdout.
     """
-    from .errors import FrappeError, error_hint
-
-    err_console.print(f"[red]error:[/red] {message}")
-    hint = error_hint(message)
-    if hint:
-        err_console.print(f"[dim]tip:[/dim] {hint}")
-    # The in-flight exception (if fail() is called from an ``except`` block)
-    # tells us whether the server sent a traceback we chose not to print.
-    exc = sys.exc_info()[1]
-    if isinstance(exc, FrappeError) and exc.has_server_exception:
-        err_console.print(
-            "[dim]tip:[/dim] re-run with --debug to see the full server traceback."
-        )
-    return typer.Exit(code)
+    return Output(json_mode=False).error(message, code)
 
 
 def _scalar(value: Any) -> str:
@@ -113,12 +173,7 @@ def emit_list(
     columns: list[str] | None,
     title: str | None = None,
 ) -> None:
-    if ctx.json:
-        print_json(rows)
-        return
-    if columns is None:
-        columns = list(rows[0].keys()) if rows else []
-    render_rows(rows, columns, title=title)
+    ctx.output.emit_list(rows, columns, title)
 
 
 def emit_source(source: str) -> None:
@@ -133,10 +188,4 @@ def emit_source(source: str) -> None:
 
 
 def emit_record(ctx: Ctx, record: Any, title: str | None = None) -> None:
-    if ctx.json:
-        print_json(record)
-        return
-    if isinstance(record, dict):
-        render_record(record, title=title)
-    else:
-        _out_console.print(_scalar(record))
+    ctx.output.emit_record(record, title)

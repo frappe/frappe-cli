@@ -11,19 +11,22 @@ Resolution order for the active site/credentials:
    OAuth tokens (``see`` :mod:`frappectl.oauth`). There is **no plaintext secret
    fallback** — a broken keyring means you must use environment variables.
 
-OAuth access tokens are short-lived, so :func:`resolve` refreshes them
-proactively (before they expire) and persists the new tokens before returning.
+OAuth access tokens are short-lived. Resolution returns their stored state;
+the credential provider owns refresh timing and persistence.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import time
+from copy import deepcopy
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Callable, Protocol, TypeAlias, cast
+
+from .site import SiteURL
 
 if TYPE_CHECKING:
     from . import oauth
@@ -33,41 +36,368 @@ KEYRING_SERVICE = "frappectl"
 # to it (and migrate forward) so existing logins survive the rename.
 _LEGACY_KEYRING_SERVICE = "frappe-cli"
 
-# Refresh an OAuth access token a little before it actually expires, so a
-# request never races the clock and 401s on a token that lapsed mid-flight.
-OAUTH_EXPIRY_MARGIN = 60.0
-
 
 class ConfigError(Exception):
     """Raised for unrecoverable configuration / credential problems."""
 
 
-@dataclass
-class Credentials:
-    """A resolved site + token, ready to build a client from.
+class AuthKind(str, Enum):
+    API_KEY = "api_key"
+    OAUTH = "oauth"
 
-    Two auth shapes share this type. API-key profiles (and the ``FRAPPE_*``
-    environment) carry ``api_key``/``api_secret`` and use ``token_type="token"``.
-    OAuth profiles carry ``access_token``/``refresh_token``/``expires_at`` and
-    use ``token_type="bearer"``. The client is told the ``token_type`` and the
-    right ``wire_token`` so it never has to branch on the shape.
-    """
 
-    site: str
+@dataclass(frozen=True)
+class Profile:
+    name: str
+    site: SiteURL
+    description: str = ""
+    read_only: bool = False
+    auth: AuthKind = AuthKind.API_KEY
+
+
+@dataclass(frozen=True)
+class ApiKeyCredential:
     api_key: str
     api_secret: str
+
+    def serialize(self) -> str:
+        return f"{self.api_key}:{self.api_secret}"
+
+
+@dataclass(frozen=True)
+class OAuthCredential:
+    access_token: str
+    refresh_token: str
+    expires_at: float
+    client_id: str
+
+    def serialize(self) -> str:
+        return json.dumps(
+            {
+                "access_token": self.access_token,
+                "refresh_token": self.refresh_token,
+                "expires_at": self.expires_at,
+                "token_type": "bearer",
+                "client_id": self.client_id,
+            }
+        )
+
+
+StoredCredential: TypeAlias = ApiKeyCredential | OAuthCredential
+ConfigData: TypeAlias = dict[str, Any]
+
+
+class ConfigStore(Protocol):
+    def load(self) -> ConfigData: ...
+
+    def save(self, data: ConfigData) -> None: ...
+
+
+class SecretStore(Protocol):
+    def get(self, profile: str) -> str | None: ...
+
+    def set(self, profile: str, secret: str) -> None: ...
+
+    def delete(self, profile: str) -> None: ...
+
+
+class JsonConfigStore:
+    def __init__(self, path_factory: Callable[[], Path] | None = None):
+        self._path_factory = path_factory or config_path
+
+    def load(self) -> ConfigData:
+        path = self._path_factory()
+        if not path.exists():
+            return {"default": None, "profiles": {}}
+        try:
+            data = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            raise ConfigError(f"Could not read config at {path}: {e}") from e
+        data.setdefault("default", None)
+        data.setdefault("profiles", {})
+        return cast("ConfigData", data)
+
+    def save(self, data: ConfigData) -> None:
+        path = self._path_factory()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2) + "\n")
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
+
+
+class KeyringSecretStore:
+    def __init__(self, keyring_factory: Callable[[], ModuleType] | None = None):
+        self._keyring_factory = keyring_factory or _keyring
+
+    def get(self, profile: str) -> str | None:
+        kr = self._keyring_factory()
+        try:
+            secret = cast("str | None", kr.get_password(KEYRING_SERVICE, profile))
+            if secret is None:
+                secret = cast(
+                    "str | None", kr.get_password(_LEGACY_KEYRING_SERVICE, profile)
+                )
+                if secret is not None:
+                    kr.set_password(KEYRING_SERVICE, profile, secret)
+                    self._delete_from(kr, _LEGACY_KEYRING_SERVICE, profile)
+            return secret
+        except Exception as e:
+            raise ConfigError(
+                f"Could not read credentials from the OS keyring ({e}). "
+                "Use FRAPPE_SITE / FRAPPE_API_KEY / FRAPPE_API_SECRET instead."
+            ) from e
+
+    def set(self, profile: str, secret: str) -> None:
+        try:
+            self._keyring_factory().set_password(KEYRING_SERVICE, profile, secret)
+        except Exception as e:
+            raise ConfigError(
+                "Could not store credentials in the OS keyring "
+                f"({e}). frappectl does not write secrets to disk. "
+                "On headless machines use FRAPPE_SITE / FRAPPE_API_KEY / "
+                "FRAPPE_API_SECRET."
+            ) from e
+
+    def delete(self, profile: str) -> None:
+        kr = self._keyring_factory()
+        self._delete_from(kr, KEYRING_SERVICE, profile)
+        self._delete_from(kr, _LEGACY_KEYRING_SERVICE, profile)
+
+    @staticmethod
+    def _delete_from(kr: ModuleType, service: str, profile: str) -> None:
+        try:
+            kr.delete_password(service, profile)
+        except Exception:
+            # Backends disagree on how deleting a missing password is reported.
+            pass
+
+
+@dataclass(frozen=True)
+class ProfileCollection:
+    profiles: dict[str, Profile]
+    default: str | None
+
+
+class ProfileRepository:
+    """Own profile metadata and its matching keyring secret as one unit."""
+
+    def __init__(self, config_store: ConfigStore, secret_store: SecretStore):
+        self.config_store = config_store
+        self.secret_store = secret_store
+
+    def list(self) -> ProfileCollection:
+        data = self.config_store.load()
+        profiles = {
+            name: _profile_from_entry(name, entry)
+            for name, entry in cast(
+                "dict[str, dict[str, Any]]", data["profiles"]
+            ).items()
+        }
+        return ProfileCollection(profiles, cast("str | None", data["default"]))
+
+    def add(
+        self,
+        profile: Profile,
+        credential: StoredCredential,
+        *,
+        make_default: bool = True,
+    ) -> None:
+        data = deepcopy(self.config_store.load())
+        previous_secret = self.secret_store.get(profile.name)
+        self.secret_store.set(profile.name, credential.serialize())
+        data["profiles"][profile.name] = _profile_entry(profile)
+        if make_default or data["default"] is None:
+            data["default"] = profile.name
+        try:
+            self.config_store.save(data)
+        except Exception as e:
+            self._restore_secret(profile.name, previous_secret)
+            raise ConfigError(
+                f"Could not save profile '{profile.name}'; its credential was restored."
+            ) from e
+
+    def rename(self, old_name: str, new_name: str) -> None:
+        data = deepcopy(self.config_store.load())
+        profiles = cast("dict[str, dict[str, Any]]", data["profiles"])
+        if old_name not in profiles:
+            raise ConfigError(f"No such profile: {old_name}")
+        if new_name == old_name:
+            return
+        if not new_name:
+            raise ConfigError("New profile name must not be empty.")
+        if new_name in profiles:
+            raise ConfigError(f"A profile named '{new_name}' already exists.")
+
+        secret = self.secret_store.get(old_name)
+        previous_new_secret = self.secret_store.get(new_name)
+        if secret is not None:
+            self.secret_store.set(new_name, secret)
+        profiles[new_name] = profiles.pop(old_name)
+        if data["default"] == old_name:
+            data["default"] = new_name
+        try:
+            self.config_store.save(data)
+        except Exception as e:
+            self._restore_secret(new_name, previous_new_secret)
+            raise ConfigError(
+                f"Could not rename profile '{old_name}'; its credential was restored."
+            ) from e
+        if secret is not None:
+            try:
+                self.secret_store.delete(old_name)
+            except Exception as e:
+                profiles[old_name] = profiles.pop(new_name)
+                if data["default"] == new_name:
+                    data["default"] = old_name
+                self.config_store.save(data)
+                self._restore_secret(new_name, previous_new_secret)
+                raise ConfigError(
+                    f"Could not rename profile '{old_name}'; config was restored."
+                ) from e
+
+    def remove(self, name: str) -> None:
+        data = deepcopy(self.config_store.load())
+        original = deepcopy(data)
+        profiles = cast("dict[str, dict[str, Any]]", data["profiles"])
+        if name not in profiles:
+            raise ConfigError(f"No such profile: {name}")
+        del profiles[name]
+        if data["default"] == name:
+            data["default"] = next(iter(profiles), None)
+        self.config_store.save(data)
+        try:
+            self.secret_store.delete(name)
+        except Exception as e:
+            try:
+                self.config_store.save(original)
+            except Exception:
+                pass
+            raise ConfigError(
+                f"Could not remove profile '{name}'; config was restored."
+            ) from e
+
+    def set_default(self, name: str) -> None:
+        data = self.config_store.load()
+        if name not in data["profiles"]:
+            raise ConfigError(f"No such profile: {name}")
+        data["default"] = name
+        self.config_store.save(data)
+
+    def update(self, profile: Profile) -> None:
+        data = self.config_store.load()
+        if profile.name not in data["profiles"]:
+            raise ConfigError(f"No such profile: {profile.name}")
+        data["profiles"][profile.name] = _profile_entry(profile)
+        self.config_store.save(data)
+
+    def credential(self, name: str) -> str | None:
+        return self.secret_store.get(name)
+
+    def store_credential(self, name: str, credential: StoredCredential) -> None:
+        self.secret_store.set(name, credential.serialize())
+
+    def _restore_secret(self, name: str, secret: str | None) -> None:
+        try:
+            if secret is None:
+                self.secret_store.delete(name)
+            else:
+                self.secret_store.set(name, secret)
+        except Exception:
+            pass
+
+
+def _profile_from_entry(name: str, entry: dict[str, Any]) -> Profile:
+    return Profile(
+        name=name,
+        site=SiteURL.parse(str(entry["site"])),
+        description=str(entry.get("description", "")),
+        read_only=bool(entry.get("read_only", False)),
+        auth=AuthKind.OAUTH if entry.get("auth") == "oauth" else AuthKind.API_KEY,
+    )
+
+
+def _profile_entry(profile: Profile) -> dict[str, Any]:
+    entry: dict[str, Any] = {"site": str(profile.site)}
+    if profile.auth is AuthKind.OAUTH:
+        entry["auth"] = "oauth"
+    if profile.description:
+        entry["description"] = profile.description
+    if profile.read_only:
+        entry["read_only"] = True
+    return entry
+
+
+def _repository() -> ProfileRepository:
+    return ProfileRepository(JsonConfigStore(), KeyringSecretStore())
+
+
+@dataclass(frozen=True)
+class Credentials:
+    """A resolved site plus exactly one valid credential shape."""
+
+    site: str
+    credential: StoredCredential
     source: str
     description: str = ""
     read_only: bool = False
-    token_type: str = "token"
-    access_token: str = ""
-    refresh_token: str = ""
-    expires_at: float = 0.0
-    client_id: str = ""
+
+    @property
+    def api_key(self) -> str:
+        return (
+            self.credential.api_key
+            if isinstance(self.credential, ApiKeyCredential)
+            else ""
+        )
+
+    @property
+    def api_secret(self) -> str:
+        return (
+            self.credential.api_secret
+            if isinstance(self.credential, ApiKeyCredential)
+            else ""
+        )
+
+    @property
+    def access_token(self) -> str:
+        return (
+            self.credential.access_token
+            if isinstance(self.credential, OAuthCredential)
+            else ""
+        )
+
+    @property
+    def refresh_token(self) -> str:
+        return (
+            self.credential.refresh_token
+            if isinstance(self.credential, OAuthCredential)
+            else ""
+        )
+
+    @property
+    def expires_at(self) -> float:
+        return (
+            self.credential.expires_at
+            if isinstance(self.credential, OAuthCredential)
+            else 0.0
+        )
+
+    @property
+    def client_id(self) -> str:
+        return (
+            self.credential.client_id
+            if isinstance(self.credential, OAuthCredential)
+            else ""
+        )
+
+    @property
+    def token_type(self) -> str:
+        return "bearer" if isinstance(self.credential, OAuthCredential) else "token"
 
     @property
     def token(self) -> str:
-        return f"{self.api_key}:{self.api_secret}"
+        return self.credential.serialize()
 
     @property
     def wire_token(self) -> str:
@@ -86,30 +416,6 @@ def config_path() -> Path:
     return config_dir() / "config.json"
 
 
-def _load() -> dict[str, Any]:
-    path = config_path()
-    if not path.exists():
-        return {"default": None, "profiles": {}}
-    try:
-        data = json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError) as e:
-        raise ConfigError(f"Could not read config at {path}: {e}") from e
-    data.setdefault("default", None)
-    data.setdefault("profiles", {})
-    return cast("dict[str, Any]", data)
-
-
-def _save(data: dict[str, Any]) -> None:
-    path = config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n")
-    # Keep the file private even though credentials are stored separately.
-    try:
-        path.chmod(0o600)
-    except OSError:
-        pass
-
-
 def _keyring() -> ModuleType:
     try:
         import keyring
@@ -122,61 +428,15 @@ def _keyring() -> ModuleType:
         ) from e
 
 
-def _store_secret(profile: str, token: str) -> None:
-    kr = _keyring()
-    try:
-        kr.set_password(KEYRING_SERVICE, profile, token)
-    except Exception as e:
-        raise ConfigError(
-            "Could not store credentials in the OS keyring "
-            f"({e}). frappectl does not write secrets to disk. "
-            "On headless machines use FRAPPE_SITE / FRAPPE_API_KEY / FRAPPE_API_SECRET."
-        ) from e
-
-
-def _read_secret(profile: str) -> str | None:
-    kr = _keyring()
-    try:
-        secret = cast("str | None", kr.get_password(KEYRING_SERVICE, profile))
-        if secret is None:
-            # Profiles created before the frappectl rename live under the old
-            # service name. Migrate them forward on first read so the fallback
-            # only ever fires once per profile.
-            secret = cast(
-                "str | None", kr.get_password(_LEGACY_KEYRING_SERVICE, profile)
-            )
-            if secret is not None:
-                kr.set_password(KEYRING_SERVICE, profile, secret)
-                _delete_legacy_secret(profile)
-        return secret
-    except Exception as e:
-        raise ConfigError(
-            f"Could not read credentials from the OS keyring ({e}). "
-            "Use FRAPPE_SITE / FRAPPE_API_KEY / FRAPPE_API_SECRET instead."
-        ) from e
-
-
-def _delete_secret(profile: str) -> None:
-    kr = _keyring()
-    try:
-        kr.delete_password(KEYRING_SERVICE, profile)
-    except Exception:
-        # Deleting a missing secret is fine.
-        pass
-    _delete_legacy_secret(profile)
-
-
-def _delete_legacy_secret(profile: str) -> None:
-    kr = _keyring()
-    try:
-        kr.delete_password(_LEGACY_KEYRING_SERVICE, profile)
-    except Exception:
-        pass
-
-
 def list_profiles() -> tuple[dict[str, dict[str, Any]], str | None]:
-    data = _load()
-    return data["profiles"], data["default"]
+    collection = _repository().list()
+    return (
+        {
+            name: _profile_entry(profile)
+            for name, profile in collection.profiles.items()
+        },
+        collection.default,
+    )
 
 
 def add_profile(
@@ -188,17 +448,11 @@ def add_profile(
     description: str = "",
     read_only: bool = False,
 ) -> None:
-    data = _load()
-    _store_secret(name, f"{api_key}:{api_secret}")
-    entry: dict[str, Any] = {"site": site}
-    if description:
-        entry["description"] = description
-    if read_only:
-        entry["read_only"] = True
-    data["profiles"][name] = entry
-    if make_default or data["default"] is None:
-        data["default"] = name
-    _save(data)
+    _repository().add(
+        Profile(name, SiteURL.parse(site), description, read_only),
+        ApiKeyCredential(api_key, api_secret),
+        make_default=make_default,
+    )
 
 
 def add_oauth_profile(
@@ -217,17 +471,16 @@ def add_oauth_profile(
     the same service/name an API-key profile would use. ``client_id`` is
     persisted so later logins reuse the same registered client.
     """
-    data = _load()
-    _store_secret(name, _oauth_blob(tokens, client_id))
-    entry: dict[str, Any] = {"site": site, "auth": "oauth"}
-    if description:
-        entry["description"] = description
-    if read_only:
-        entry["read_only"] = True
-    data["profiles"][name] = entry
-    if make_default or data["default"] is None:
-        data["default"] = name
-    _save(data)
+    _repository().add(
+        Profile(name, SiteURL.parse(site), description, read_only, AuthKind.OAUTH),
+        OAuthCredential(
+            tokens.access_token,
+            tokens.refresh_token,
+            tokens.expires_at,
+            client_id,
+        ),
+        make_default=make_default,
+    )
 
 
 def update_oauth_tokens(name: str, tokens: oauth.Tokens) -> None:
@@ -240,7 +493,20 @@ def update_oauth_tokens(name: str, tokens: oauth.Tokens) -> None:
     client_id = existing.get("client_id", "")
     if not tokens.refresh_token:
         tokens = tokens.with_refresh_token(existing.get("refresh_token", ""))
-    _store_secret(name, _oauth_blob(tokens, client_id))
+    _repository().store_credential(
+        name,
+        OAuthCredential(
+            tokens.access_token,
+            tokens.refresh_token,
+            tokens.expires_at,
+            client_id,
+        ),
+    )
+
+
+def store_oauth_credential(name: str, credential: OAuthCredential) -> None:
+    """Persist an OAuth provider's current credential."""
+    _repository().store_credential(name, credential)
 
 
 def oauth_client_id(name: str) -> str | None:
@@ -253,20 +519,8 @@ def oauth_access_token(name: str) -> str | None:
     return _read_oauth_blob(name).get("access_token") or None
 
 
-def _oauth_blob(tokens: oauth.Tokens, client_id: str) -> str:
-    return json.dumps(
-        {
-            "access_token": tokens.access_token,
-            "refresh_token": tokens.refresh_token,
-            "expires_at": tokens.expires_at,
-            "token_type": tokens.token_type,
-            "client_id": client_id,
-        }
-    )
-
-
 def _read_oauth_blob(name: str) -> dict[str, Any]:
-    raw = _read_secret(name)
+    raw = _repository().credential(name)
     if not raw:
         return {}
     try:
@@ -278,82 +532,60 @@ def _read_oauth_blob(name: str) -> dict[str, Any]:
 
 def rename_profile(name: str, new_name: str) -> None:
     """Rename a profile, moving its secret and default pointer with it."""
-    data = _load()
-    if name not in data["profiles"]:
-        raise ConfigError(f"No such profile: {name}")
-    if new_name == name:
-        return
-    if not new_name:
-        raise ConfigError("New profile name must not be empty.")
-    if new_name in data["profiles"]:
-        raise ConfigError(f"A profile named '{new_name}' already exists.")
-
-    # Move the secret first so a keyring failure can't orphan the config entry.
-    token = _read_secret(name)
-    if token:
-        _store_secret(new_name, token)
-        _delete_secret(name)
-    data["profiles"][new_name] = data["profiles"].pop(name)
-    if data["default"] == name:
-        data["default"] = new_name
-    _save(data)
+    _repository().rename(name, new_name)
 
 
 def set_description(name: str, description: str) -> None:
     """Set (or clear, with an empty string) a profile's description."""
-    data = _load()
-    if name not in data["profiles"]:
-        raise ConfigError(f"No such profile: {name}")
-    if description:
-        data["profiles"][name]["description"] = description
-    else:
-        data["profiles"][name].pop("description", None)
-    _save(data)
+    collection = _repository().list()
+    try:
+        profile = collection.profiles[name]
+    except KeyError as e:
+        raise ConfigError(f"No such profile: {name}") from e
+    _repository().update(
+        Profile(name, profile.site, description, profile.read_only, profile.auth)
+    )
 
 
 def set_read_only(name: str, read_only: bool) -> None:
     """Mark a profile read-only (or clear the mark)."""
-    data = _load()
-    if name not in data["profiles"]:
-        raise ConfigError(f"No such profile: {name}")
-    if read_only:
-        data["profiles"][name]["read_only"] = True
-    else:
-        data["profiles"][name].pop("read_only", None)
-    _save(data)
+    collection = _repository().list()
+    try:
+        profile = collection.profiles[name]
+    except KeyError as e:
+        raise ConfigError(f"No such profile: {name}") from e
+    _repository().update(
+        Profile(name, profile.site, profile.description, read_only, profile.auth)
+    )
 
 
 def remove_profile(name: str) -> None:
-    data = _load()
-    if name not in data["profiles"]:
-        raise ConfigError(f"No such profile: {name}")
-    del data["profiles"][name]
-    _delete_secret(name)
-    if data["default"] == name:
-        data["default"] = next(iter(data["profiles"]), None)
-    _save(data)
+    _repository().remove(name)
 
 
 def set_default(name: str) -> None:
-    data = _load()
-    if name not in data["profiles"]:
-        raise ConfigError(f"No such profile: {name}")
-    data["default"] = name
-    _save(data)
+    _repository().set_default(name)
 
 
 def _env_truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _normalize_site(site: str) -> str:
-    site = site.strip().rstrip("/")
-    if not site.startswith(("http://", "https://")):
-        site = "https://" + site
-    return site
+class ProfileResolver:
+    """Resolve environment/profile precedence without owning persistence."""
+
+    def resolve(
+        self, profile: str | None = None, interactive: bool = True
+    ) -> Credentials:
+        return _resolve(profile, interactive)
 
 
 def resolve(profile: str | None = None, interactive: bool = True) -> Credentials:
+    """Compatibility shim over the default profile resolver."""
+    return ProfileResolver().resolve(profile, interactive)
+
+
+def _resolve(profile: str | None = None, interactive: bool = True) -> Credentials:
     """Resolve credentials per the documented precedence.
 
     The configured default profile is a convenience for humans at a terminal.
@@ -372,9 +604,8 @@ def resolve(profile: str | None = None, interactive: bool = True) -> Credentials
                 "FRAPPE_SITE is set but FRAPPE_API_KEY / FRAPPE_API_SECRET are missing."
             )
         return Credentials(
-            _normalize_site(env_site),
-            key,
-            secret,
+            str(SiteURL.parse(env_site)),
+            ApiKeyCredential(key, secret),
             source="env",
             read_only=_env_truthy(os.environ.get("FRAPPE_READ_ONLY")),
         )
@@ -406,7 +637,7 @@ def resolve(profile: str | None = None, interactive: bool = True) -> Credentials
     if profiles[name].get("auth") == "oauth":
         return _resolve_oauth(name, profiles[name])
 
-    token = _read_secret(name)
+    token = _repository().credential(name)
     if not token or ":" not in token:
         raise ConfigError(
             f"No stored credentials for profile '{name}'. "
@@ -414,9 +645,8 @@ def resolve(profile: str | None = None, interactive: bool = True) -> Credentials
         )
     api_key, api_secret = token.split(":", 1)
     return Credentials(
-        _normalize_site(profiles[name]["site"]),
-        api_key,
-        api_secret,
+        str(SiteURL.parse(profiles[name]["site"])),
+        ApiKeyCredential(api_key, api_secret),
         source=name,
         description=profiles[name].get("description", ""),
         read_only=bool(profiles[name].get("read_only", False)),
@@ -424,14 +654,7 @@ def resolve(profile: str | None = None, interactive: bool = True) -> Credentials
 
 
 def _resolve_oauth(name: str, entry: dict[str, Any]) -> Credentials:
-    """Resolve an OAuth profile, refreshing the access token if it has lapsed.
-
-    The refresh happens here — at resolve time — so every command gets a live
-    token without each having to know about OAuth. The refreshed tokens are
-    persisted before returning so the next command starts from the new expiry.
-    """
-    from . import oauth
-
+    """Resolve stored OAuth state; the provider owns refresh timing."""
     blob = _read_oauth_blob(name)
     access_token = blob.get("access_token", "")
     refresh_token = blob.get("refresh_token", "")
@@ -440,7 +663,7 @@ def _resolve_oauth(name: str, entry: dict[str, Any]) -> Credentials:
         expires_at = float(blob.get("expires_at") or 0)
     except (TypeError, ValueError):
         expires_at = 0.0
-    site = _normalize_site(entry["site"])
+    site = str(SiteURL.parse(entry["site"]))
 
     if not access_token:
         raise ConfigError(
@@ -448,30 +671,10 @@ def _resolve_oauth(name: str, entry: dict[str, Any]) -> Credentials:
             f"Run 'frappectl auth login {site}' again for this site."
         )
 
-    # Refresh before expiry so the next request cannot race the token lifetime.
-    if refresh_token and expires_at and expires_at - OAUTH_EXPIRY_MARGIN <= time.time():
-        try:
-            tokens = oauth.refresh(site, client_id, refresh_token)
-        except oauth.OAuthError as e:
-            raise ConfigError(
-                f"Could not refresh the OAuth session for '{name}': {e}. "
-                f"Run 'frappectl auth login {site}' again."
-            ) from e
-        update_oauth_tokens(name, tokens)
-        access_token = tokens.access_token
-        refresh_token = tokens.refresh_token or refresh_token
-        expires_at = tokens.expires_at
-
     return Credentials(
         site=site,
-        api_key="",
-        api_secret="",
+        credential=OAuthCredential(access_token, refresh_token, expires_at, client_id),
         source=name,
         description=entry.get("description", ""),
         read_only=bool(entry.get("read_only", False)),
-        token_type="bearer",
-        access_token=access_token,
-        refresh_token=refresh_token,
-        expires_at=expires_at,
-        client_id=client_id,
     )

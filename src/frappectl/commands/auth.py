@@ -11,6 +11,7 @@ from .. import config, oauth
 from ..client import FrappeClient
 from ..errors import FrappeError
 from ..output import emit_list, err_console, fail, get_ctx
+from ..site import SiteURL
 
 app = typer.Typer(no_args_is_help=True, help="Manage site profiles and credentials.")
 
@@ -97,7 +98,7 @@ def login(
             2,
         )
 
-    norm_site = config._normalize_site(site)
+    norm_site = str(SiteURL.parse(site))
 
     # A friendly shorthand and a description are both prompted for (with sane
     # defaults) unless supplied as flags, so a stored site is easy to pick
@@ -273,7 +274,7 @@ def logout(
     if profiles.get(name, {}).get("auth") == "oauth":
         token = config.oauth_access_token(name)
         if token:
-            oauth.revoke(config._normalize_site(profiles[name]["site"]), token)
+            oauth.revoke(str(SiteURL.parse(profiles[name]["site"])), token)
     try:
         config.remove_profile(name)
     except config.ConfigError as e:

@@ -2,8 +2,60 @@ import time
 
 import pytest
 
-from frappectl.config import ConfigError
+from frappectl.config import (
+    ApiKeyCredential,
+    ConfigError,
+    Profile,
+    ProfileRepository,
+)
 from frappectl.oauth import Tokens
+from frappectl.site import SiteURL
+
+
+class MemoryConfigStore:
+    def __init__(self, data=None):
+        self.data = data or {"default": None, "profiles": {}}
+        self.fail_save = False
+
+    def load(self):
+        return self.data
+
+    def save(self, data):
+        if self.fail_save:
+            raise OSError("disk full")
+        self.data = data
+
+
+class MemorySecretStore:
+    def __init__(self):
+        self.data = {}
+
+    def get(self, profile):
+        return self.data.get(profile)
+
+    def set(self, profile, secret):
+        self.data[profile] = secret
+
+    def delete(self, profile):
+        self.data.pop(profile, None)
+
+
+def test_repository_restores_secret_when_config_write_fails():
+    configs = MemoryConfigStore()
+    secrets = MemorySecretStore()
+    secrets.data["acme"] = "old:secret"
+    repo = ProfileRepository(configs, secrets)
+    configs.fail_save = True
+
+    with pytest.raises(ConfigError) as exc:
+        repo.add(
+            Profile("acme", SiteURL.parse("https://acme.test")),
+            ApiKeyCredential("new", "secret"),
+        )
+
+    assert secrets.data["acme"] == "old:secret"
+    assert configs.data == {"default": None, "profiles": {}}
+    assert isinstance(exc.value.__cause__, OSError)
 
 
 def test_env_wins(fake_config, monkeypatch):
@@ -240,25 +292,21 @@ def test_oauth_client_id_and_access_token_helpers(fake_config):
     assert fake_config.oauth_client_id("keys") is None
 
 
-def test_oauth_resolve_refreshes_when_expired(fake_config, monkeypatch):
+def test_oauth_resolve_leaves_expired_token_for_provider(fake_config, monkeypatch):
     fake_config.add_oauth_profile(
         "acme", "http://acme.test", "client-1", _tokens(ttl=-10)
     )
 
-    called = {}
-
-    def fake_refresh(site, client_id, refresh_token):
-        called["args"] = (site, client_id, refresh_token)
-        return _tokens(access="AT2", refresh="RT2")
+    def fake_refresh(*args):
+        raise AssertionError("profile resolution must not refresh credentials")
 
     from frappectl import oauth
 
     monkeypatch.setattr(oauth, "refresh", fake_refresh)
 
     creds = fake_config.resolve()
-    assert creds.access_token == "AT2"
-    assert called["args"] == ("http://acme.test", "client-1", "RT")
-    assert fake_config.oauth_access_token("acme") == "AT2"
+    assert creds.access_token == "AT"
+    assert fake_config.oauth_access_token("acme") == "AT"
     assert fake_config.oauth_client_id("acme") == "client-1"
 
 
@@ -276,7 +324,7 @@ def test_oauth_resolve_no_refresh_when_fresh(fake_config, monkeypatch):
     assert fake_config.resolve().access_token == "AT"
 
 
-def test_oauth_refresh_failure_surfaces_as_config_error(fake_config, monkeypatch):
+def test_oauth_resolve_does_not_call_refresh_service(fake_config, monkeypatch):
     fake_config.add_oauth_profile(
         "acme", "http://acme.test", "client-1", _tokens(ttl=-10)
     )
@@ -286,8 +334,7 @@ def test_oauth_refresh_failure_surfaces_as_config_error(fake_config, monkeypatch
         raise oauth.OAuthError("token expired")
 
     monkeypatch.setattr(oauth, "refresh", fail_refresh)
-    with pytest.raises(ConfigError, match="refresh"):
-        fake_config.resolve()
+    assert fake_config.resolve().access_token == "AT"
 
 
 def test_update_oauth_tokens_preserves_refresh_when_absent(fake_config):

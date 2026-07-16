@@ -3,7 +3,7 @@ import pytest
 import respx
 from typer.testing import CliRunner
 
-from frappectl import client as client_mod
+from frappectl import resources
 from frappectl.cli import app
 from frappectl.client import FrappeClient
 from frappectl.errors import FrappeError
@@ -25,7 +25,7 @@ def env(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_sleep(monkeypatch):
-    monkeypatch.setattr(client_mod.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(resources.time, "sleep", lambda _s: None)
 
 
 @respx.mock

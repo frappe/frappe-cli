@@ -2,66 +2,60 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import TypeVar
+from functools import partial
 
 from . import config
 from .client import FrappeClient
-from .errors import FrappeError
-from .output import Ctx, fail
-
-T = TypeVar("T")
+from .credentials import ApiKeyProvider, CredentialRefreshError, OAuthProvider
+from .output import ApplicationContext, fail
 
 
-def get_client(ctx: Ctx) -> FrappeClient:
-    try:
-        creds = config.resolve(ctx.profile, interactive=ctx.is_tty)
-    except config.ConfigError as e:
-        raise fail(str(e), 2)
-    on_unauthorized = _oauth_refresher(creds) if creds.token_type == "bearer" else None
-    return FrappeClient(
-        creds.site,
-        creds.wire_token,
-        debug=ctx.debug,
-        read_only=creds.read_only,
-        token_type=creds.token_type,
-        on_unauthorized=on_unauthorized,
+class ClientFactory:
+    def __init__(self, resolver: config.ProfileResolver | None = None):
+        self._resolver = resolver or config.ProfileResolver()
+
+    def create(
+        self, profile: str | None, *, interactive: bool, debug: bool
+    ) -> FrappeClient:
+        try:
+            creds = self._resolver.resolve(profile, interactive=interactive)
+        except config.ConfigError as e:
+            raise fail(str(e), 2)
+        provider = (
+            OAuthProvider(
+                creds.site,
+                creds.credential,
+                _refresh_oauth,
+                partial(config.store_oauth_credential, creds.source),
+            )
+            if isinstance(creds.credential, config.OAuthCredential)
+            else ApiKeyProvider(creds.credential.api_key, creds.credential.api_secret)
+        )
+        try:
+            return FrappeClient(
+                creds.site,
+                creds.wire_token,
+                debug=debug,
+                read_only=creds.read_only,
+                token_type=creds.token_type,
+                credential_provider=provider,
+            )
+        except CredentialRefreshError as e:
+            raise fail(str(e), 2)
+
+
+def get_client(ctx: ApplicationContext) -> FrappeClient:
+    return ctx.client_factory.create(
+        ctx.profile, interactive=ctx.is_tty, debug=ctx.debug
     )
 
 
-def _oauth_refresher(creds: config.Credentials) -> Callable[[], str | None]:
-    """A 401 handler that refreshes an OAuth access token and persists it.
+def _refresh_oauth(
+    site: str, client_id: str, refresh_token: str
+) -> config.OAuthCredential:
+    from . import oauth
 
-    Resolution already refreshes proactively when the token has expired; this is
-    the reactive backstop for a token the server rejects early (revoked,
-    clock skew). Returns None on any failure so the original 401 surfaces.
-    """
-    # Track the refresh token locally so a rotated token is used on a retry.
-    state = {"refresh_token": creds.refresh_token}
-
-    def refresh_once() -> str | None:
-        from . import oauth
-
-        try:
-            tokens = oauth.refresh(creds.site, creds.client_id, state["refresh_token"])
-        except oauth.OAuthError:
-            return None
-        state["refresh_token"] = tokens.refresh_token or state["refresh_token"]
-        try:
-            config.update_oauth_tokens(creds.source, tokens)
-        except config.ConfigError:
-            # A keyring write failure must not defeat an otherwise-valid token.
-            pass
-        return tokens.access_token
-
-    return refresh_once
-
-
-def run(fn: Callable[[], T]) -> T:
-    """Wrap a command body so FrappeError surfaces as a clean exit-1."""
-    try:
-        return fn()
-    except FrappeError as e:
-        raise fail(e.message)
-    except config.ConfigError as e:
-        raise fail(str(e), 2)
+    tokens = oauth.refresh(site, client_id, refresh_token)
+    return config.OAuthCredential(
+        tokens.access_token, tokens.refresh_token, tokens.expires_at, client_id
+    )
