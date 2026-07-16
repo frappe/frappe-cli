@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
@@ -36,10 +35,6 @@ KEYRING_SERVICE = "frappectl"
 # Pre-rename installs stored secrets under this service name; reads fall back
 # to it (and migrate forward) so existing logins survive the rename.
 _LEGACY_KEYRING_SERVICE = "frappe-cli"
-
-# Refresh an OAuth access token a little before it actually expires, so a
-# request never races the clock and 401s on a token that lapsed mid-flight.
-OAUTH_EXPIRY_MARGIN = 60.0
 
 
 class ConfigError(Exception):
@@ -338,32 +333,71 @@ def _repository() -> ProfileRepository:
     return ProfileRepository(JsonConfigStore(), KeyringSecretStore())
 
 
-@dataclass
+@dataclass(frozen=True)
 class Credentials:
-    """A resolved site + token, ready to build a client from.
-
-    Two auth shapes share this type. API-key profiles (and the ``FRAPPE_*``
-    environment) carry ``api_key``/``api_secret`` and use ``token_type="token"``.
-    OAuth profiles carry ``access_token``/``refresh_token``/``expires_at`` and
-    use ``token_type="bearer"``. The client is told the ``token_type`` and the
-    right ``wire_token`` so it never has to branch on the shape.
-    """
+    """A resolved site plus exactly one valid credential shape."""
 
     site: str
-    api_key: str
-    api_secret: str
+    credential: StoredCredential
     source: str
     description: str = ""
     read_only: bool = False
-    token_type: str = "token"
-    access_token: str = ""
-    refresh_token: str = ""
-    expires_at: float = 0.0
-    client_id: str = ""
+
+    @property
+    def api_key(self) -> str:
+        return (
+            self.credential.api_key
+            if isinstance(self.credential, ApiKeyCredential)
+            else ""
+        )
+
+    @property
+    def api_secret(self) -> str:
+        return (
+            self.credential.api_secret
+            if isinstance(self.credential, ApiKeyCredential)
+            else ""
+        )
+
+    @property
+    def access_token(self) -> str:
+        return (
+            self.credential.access_token
+            if isinstance(self.credential, OAuthCredential)
+            else ""
+        )
+
+    @property
+    def refresh_token(self) -> str:
+        return (
+            self.credential.refresh_token
+            if isinstance(self.credential, OAuthCredential)
+            else ""
+        )
+
+    @property
+    def expires_at(self) -> float:
+        return (
+            self.credential.expires_at
+            if isinstance(self.credential, OAuthCredential)
+            else 0.0
+        )
+
+    @property
+    def client_id(self) -> str:
+        return (
+            self.credential.client_id
+            if isinstance(self.credential, OAuthCredential)
+            else ""
+        )
+
+    @property
+    def token_type(self) -> str:
+        return "bearer" if isinstance(self.credential, OAuthCredential) else "token"
 
     @property
     def token(self) -> str:
-        return f"{self.api_key}:{self.api_secret}"
+        return self.credential.serialize()
 
     @property
     def wire_token(self) -> str:
@@ -578,7 +612,21 @@ def _normalize_site(site: str) -> str:
     return str(SiteURL.parse(site))
 
 
+class ProfileResolver:
+    """Resolve environment/profile precedence without owning persistence."""
+
+    def resolve(
+        self, profile: str | None = None, interactive: bool = True
+    ) -> Credentials:
+        return _resolve(profile, interactive)
+
+
 def resolve(profile: str | None = None, interactive: bool = True) -> Credentials:
+    """Compatibility shim over the default profile resolver."""
+    return ProfileResolver().resolve(profile, interactive)
+
+
+def _resolve(profile: str | None = None, interactive: bool = True) -> Credentials:
     """Resolve credentials per the documented precedence.
 
     The configured default profile is a convenience for humans at a terminal.
@@ -598,8 +646,7 @@ def resolve(profile: str | None = None, interactive: bool = True) -> Credentials
             )
         return Credentials(
             _normalize_site(env_site),
-            key,
-            secret,
+            ApiKeyCredential(key, secret),
             source="env",
             read_only=_env_truthy(os.environ.get("FRAPPE_READ_ONLY")),
         )
@@ -640,8 +687,7 @@ def resolve(profile: str | None = None, interactive: bool = True) -> Credentials
     api_key, api_secret = token.split(":", 1)
     return Credentials(
         _normalize_site(profiles[name]["site"]),
-        api_key,
-        api_secret,
+        ApiKeyCredential(api_key, api_secret),
         source=name,
         description=profiles[name].get("description", ""),
         read_only=bool(profiles[name].get("read_only", False)),
@@ -649,14 +695,7 @@ def resolve(profile: str | None = None, interactive: bool = True) -> Credentials
 
 
 def _resolve_oauth(name: str, entry: dict[str, Any]) -> Credentials:
-    """Resolve an OAuth profile, refreshing the access token if it has lapsed.
-
-    The refresh happens here — at resolve time — so every command gets a live
-    token without each having to know about OAuth. The refreshed tokens are
-    persisted before returning so the next command starts from the new expiry.
-    """
-    from . import oauth
-
+    """Resolve stored OAuth state; the provider owns refresh timing."""
     blob = _read_oauth_blob(name)
     access_token = blob.get("access_token", "")
     refresh_token = blob.get("refresh_token", "")
@@ -673,30 +712,10 @@ def _resolve_oauth(name: str, entry: dict[str, Any]) -> Credentials:
             f"Run 'frappectl auth login {site}' again for this site."
         )
 
-    # Refresh before expiry so the next request cannot race the token lifetime.
-    if refresh_token and expires_at and expires_at - OAUTH_EXPIRY_MARGIN <= time.time():
-        try:
-            tokens = oauth.refresh(site, client_id, refresh_token)
-        except oauth.OAuthError as e:
-            raise ConfigError(
-                f"Could not refresh the OAuth session for '{name}': {e}. "
-                f"Run 'frappectl auth login {site}' again."
-            ) from e
-        update_oauth_tokens(name, tokens)
-        access_token = tokens.access_token
-        refresh_token = tokens.refresh_token or refresh_token
-        expires_at = tokens.expires_at
-
     return Credentials(
         site=site,
-        api_key="",
-        api_secret="",
+        credential=OAuthCredential(access_token, refresh_token, expires_at, client_id),
         source=name,
         description=entry.get("description", ""),
         read_only=bool(entry.get("read_only", False)),
-        token_type="bearer",
-        access_token=access_token,
-        refresh_token=refresh_token,
-        expires_at=expires_at,
-        client_id=client_id,
     )
