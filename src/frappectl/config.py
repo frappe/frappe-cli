@@ -21,9 +21,10 @@ import json
 import os
 import time
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Callable, Protocol, TypeAlias, cast
 
 from .site import SiteURL
 
@@ -42,6 +43,139 @@ OAUTH_EXPIRY_MARGIN = 60.0
 
 class ConfigError(Exception):
     """Raised for unrecoverable configuration / credential problems."""
+
+
+class AuthKind(str, Enum):
+    API_KEY = "api_key"
+    OAUTH = "oauth"
+
+
+@dataclass(frozen=True)
+class Profile:
+    name: str
+    site: SiteURL
+    description: str = ""
+    read_only: bool = False
+    auth: AuthKind = AuthKind.API_KEY
+
+
+@dataclass(frozen=True)
+class ApiKeyCredential:
+    api_key: str
+    api_secret: str
+
+    def serialize(self) -> str:
+        return f"{self.api_key}:{self.api_secret}"
+
+
+@dataclass(frozen=True)
+class OAuthCredential:
+    access_token: str
+    refresh_token: str
+    expires_at: float
+    client_id: str
+
+    def serialize(self) -> str:
+        return json.dumps(
+            {
+                "access_token": self.access_token,
+                "refresh_token": self.refresh_token,
+                "expires_at": self.expires_at,
+                "token_type": "bearer",
+                "client_id": self.client_id,
+            }
+        )
+
+
+StoredCredential: TypeAlias = ApiKeyCredential | OAuthCredential
+ConfigData: TypeAlias = dict[str, Any]
+
+
+class ConfigStore(Protocol):
+    def load(self) -> ConfigData: ...
+
+    def save(self, data: ConfigData) -> None: ...
+
+
+class SecretStore(Protocol):
+    def get(self, profile: str) -> str | None: ...
+
+    def set(self, profile: str, secret: str) -> None: ...
+
+    def delete(self, profile: str) -> None: ...
+
+
+class JsonConfigStore:
+    def __init__(self, path_factory: Callable[[], Path] | None = None):
+        self._path_factory = path_factory or config_path
+
+    def load(self) -> ConfigData:
+        path = self._path_factory()
+        if not path.exists():
+            return {"default": None, "profiles": {}}
+        try:
+            data = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            raise ConfigError(f"Could not read config at {path}: {e}") from e
+        data.setdefault("default", None)
+        data.setdefault("profiles", {})
+        return cast("ConfigData", data)
+
+    def save(self, data: ConfigData) -> None:
+        path = self._path_factory()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2) + "\n")
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
+
+
+class KeyringSecretStore:
+    def __init__(self, keyring_factory: Callable[[], ModuleType] | None = None):
+        self._keyring_factory = keyring_factory or _keyring
+
+    def get(self, profile: str) -> str | None:
+        kr = self._keyring_factory()
+        try:
+            secret = cast("str | None", kr.get_password(KEYRING_SERVICE, profile))
+            if secret is None:
+                secret = cast(
+                    "str | None", kr.get_password(_LEGACY_KEYRING_SERVICE, profile)
+                )
+                if secret is not None:
+                    kr.set_password(KEYRING_SERVICE, profile, secret)
+                    self._delete_from(kr, _LEGACY_KEYRING_SERVICE, profile)
+            return secret
+        except Exception as e:
+            raise ConfigError(
+                f"Could not read credentials from the OS keyring ({e}). "
+                "Use FRAPPE_SITE / FRAPPE_API_KEY / FRAPPE_API_SECRET instead."
+            ) from e
+
+    def set(self, profile: str, secret: str) -> None:
+        try:
+            self._keyring_factory().set_password(KEYRING_SERVICE, profile, secret)
+        except Exception as e:
+            raise ConfigError(
+                "Could not store credentials in the OS keyring "
+                f"({e}). frappectl does not write secrets to disk. "
+                "On headless machines use FRAPPE_SITE / FRAPPE_API_KEY / "
+                "FRAPPE_API_SECRET."
+            ) from e
+
+    def delete(self, profile: str) -> None:
+        kr = self._keyring_factory()
+        self._delete_from(kr, KEYRING_SERVICE, profile)
+        self._delete_from(kr, _LEGACY_KEYRING_SERVICE, profile)
+
+    @staticmethod
+    def _delete_from(kr: ModuleType, service: str, profile: str) -> None:
+        try:
+            kr.delete_password(service, profile)
+        except Exception:
+            # Backends disagree on how deleting a missing password is reported.
+            pass
 
 
 @dataclass
@@ -89,27 +223,11 @@ def config_path() -> Path:
 
 
 def _load() -> dict[str, Any]:
-    path = config_path()
-    if not path.exists():
-        return {"default": None, "profiles": {}}
-    try:
-        data = json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError) as e:
-        raise ConfigError(f"Could not read config at {path}: {e}") from e
-    data.setdefault("default", None)
-    data.setdefault("profiles", {})
-    return cast("dict[str, Any]", data)
+    return JsonConfigStore().load()
 
 
 def _save(data: dict[str, Any]) -> None:
-    path = config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n")
-    # Keep the file private even though credentials are stored separately.
-    try:
-        path.chmod(0o600)
-    except OSError:
-        pass
+    JsonConfigStore().save(data)
 
 
 def _keyring() -> ModuleType:
@@ -125,55 +243,19 @@ def _keyring() -> ModuleType:
 
 
 def _store_secret(profile: str, token: str) -> None:
-    kr = _keyring()
-    try:
-        kr.set_password(KEYRING_SERVICE, profile, token)
-    except Exception as e:
-        raise ConfigError(
-            "Could not store credentials in the OS keyring "
-            f"({e}). frappectl does not write secrets to disk. "
-            "On headless machines use FRAPPE_SITE / FRAPPE_API_KEY / FRAPPE_API_SECRET."
-        ) from e
+    KeyringSecretStore().set(profile, token)
 
 
 def _read_secret(profile: str) -> str | None:
-    kr = _keyring()
-    try:
-        secret = cast("str | None", kr.get_password(KEYRING_SERVICE, profile))
-        if secret is None:
-            # Profiles created before the frappectl rename live under the old
-            # service name. Migrate them forward on first read so the fallback
-            # only ever fires once per profile.
-            secret = cast(
-                "str | None", kr.get_password(_LEGACY_KEYRING_SERVICE, profile)
-            )
-            if secret is not None:
-                kr.set_password(KEYRING_SERVICE, profile, secret)
-                _delete_legacy_secret(profile)
-        return secret
-    except Exception as e:
-        raise ConfigError(
-            f"Could not read credentials from the OS keyring ({e}). "
-            "Use FRAPPE_SITE / FRAPPE_API_KEY / FRAPPE_API_SECRET instead."
-        ) from e
+    return KeyringSecretStore().get(profile)
 
 
 def _delete_secret(profile: str) -> None:
-    kr = _keyring()
-    try:
-        kr.delete_password(KEYRING_SERVICE, profile)
-    except Exception:
-        # Deleting a missing secret is fine.
-        pass
-    _delete_legacy_secret(profile)
+    KeyringSecretStore().delete(profile)
 
 
 def _delete_legacy_secret(profile: str) -> None:
-    kr = _keyring()
-    try:
-        kr.delete_password(_LEGACY_KEYRING_SERVICE, profile)
-    except Exception:
-        pass
+    KeyringSecretStore._delete_from(_keyring(), _LEGACY_KEYRING_SERVICE, profile)
 
 
 def list_profiles() -> tuple[dict[str, dict[str, Any]], str | None]:
