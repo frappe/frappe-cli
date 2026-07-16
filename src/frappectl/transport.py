@@ -402,6 +402,36 @@ class FrappeTransport:
         rows = cast("list[Document]", body.get("data", []))
         return rows, bool(body.get("has_next_page"))
 
+    def request_page(
+        self, path: str, *, params: dict[str, Any] | None = None
+    ) -> tuple[list[Document], bool]:
+        """Return a paginated response without discarding its page marker."""
+        try:
+            resp = self._send("GET", path, params=_clean_params(params))
+        except httpx.HTTPError as e:
+            raise FrappeError(f"Could not reach {self.site}: {e}") from e
+        if resp.status_code >= 400:
+            body = _safe_json(resp)
+            raise self._server_error(
+                extract_message(body, resp.status_code), resp.status_code, body
+            )
+        body = resp.json()
+        self._emit_server_debug(body)
+        rows = cast("list[Document]", body.get("data", []))
+        return rows, bool(body.get("has_next_page"))
+
+    def request_envelope_data(self, method: str, path: str) -> Any:
+        """Return data only when the server sent a trusted JSON envelope."""
+        try:
+            resp = self._send(method, path)
+        except httpx.HTTPError as e:
+            raise FrappeError(f"Could not reach {self.site}: {e}") from e
+        self._handle(resp)
+        body = _safe_json(resp)
+        if isinstance(body, dict) and "data" in body:
+            return body["data"]
+        raise FrappeError("The server returned an unexpected response envelope.")
+
     def get_document(self, doctype: str, name: str) -> Document:
         return cast(
             Document,
