@@ -373,19 +373,6 @@ def test_method_show_doctype_detail_human_shows_defined_in(env, monkeypatch):
 
 @respx.mock
 def test_method_call_picks_post_and_invokes_document_endpoint(env):
-    respx.get(f"{BASE}/api/v2/discovery/doctype/User/method/add_comment").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "data": {
-                    "kind": "doctype",
-                    "doctype": "User",
-                    "method": "add_comment",
-                    "http_methods": ["GET", "POST"],
-                }
-            },
-        )
-    )
     invoke = respx.post(
         f"{BASE}/api/v2/document/User/Administrator/method/add_comment"
     ).mock(return_value=httpx.Response(200, json={"data": {"name": "c1"}}))
@@ -465,20 +452,8 @@ def test_method_call_url_encodes_document_name(env):
 
 
 @respx.mock
-def test_method_call_rpc_picks_verb_from_discovery(env):
-    # No -X and no --doctype: RPC path, verb chosen from discovery detail.
-    respx.get(f"{BASE}/api/v2/discovery/method/gameplan.api.get_unread_count").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "data": {
-                    "kind": "rpc",
-                    "path": "gameplan.api.get_unread_count",
-                    "http_methods": ["GET", "POST"],
-                }
-            },
-        )
-    )
+def test_method_call_rpc_defaults_to_post(env):
+    # No -X and no --doctype: RPC path defaults to POST without any discovery.
     invoke = respx.post(f"{BASE}/api/v2/method/gameplan.api.get_unread_count").mock(
         return_value=httpx.Response(200, json={"data": {"count": 3}})
     )
@@ -515,6 +490,24 @@ def test_method_call_rpc_explicit_get_hits_method_endpoint(env):
     assert invoke.called
     # Explicit verb short-circuits the discovery lookup.
     assert not detail.called
+
+
+@respx.mock
+def test_method_call_read_only_defaults_to_get(monkeypatch):
+    # A read-only session cannot POST, so an unqualified call falls back to GET.
+    monkeypatch.setenv("FRAPPE_SITE", BASE)
+    monkeypatch.setenv("FRAPPE_API_KEY", "k")
+    monkeypatch.setenv("FRAPPE_API_SECRET", "s")
+    monkeypatch.setenv("FRAPPE_READ_ONLY", "1")
+    invoke = respx.get(f"{BASE}/api/v2/method/frappe.client.get_count").mock(
+        return_value=httpx.Response(200, json={"data": 3})
+    )
+    result = runner.invoke(
+        app,
+        ["--json", "method", "call", "frappe.client.get_count", "-F", "doctype=User"],
+    )
+    assert result.exit_code == 0, result.stderr
+    assert invoke.called
 
 
 @respx.mock
