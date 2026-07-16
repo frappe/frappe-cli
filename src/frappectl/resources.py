@@ -16,6 +16,8 @@ from .transport import (
     FrappeTransport,
 )
 
+DISCOVERY_MAX_RETRY_WAIT = 30.0
+
 
 class DocumentsAPI:
     def __init__(self, transport: FrappeTransport):
@@ -170,13 +172,16 @@ class DiscoveryAPI:
     def _get(self, path: str, *, params: dict[str, Any] | None = None) -> Any:
         attempts = 0
         while True:
+            response = self._transport.send("GET", path, params=params)
+            if response.status_code != 503 or attempts >= DISCOVERY_MAX_RETRIES:
+                return self._transport.handle_response(response)
+            attempts += 1
+            raw_wait = response.headers.get("Retry-After")
             try:
-                return self._transport.request("GET", path, params=params)
-            except FrappeError as e:
-                if e.status_code != 503 or attempts >= DISCOVERY_MAX_RETRIES:
-                    raise
-                attempts += 1
-                time.sleep(DISCOVERY_FALLBACK_BACKOFF)
+                wait = float(raw_wait) if raw_wait else DISCOVERY_FALLBACK_BACKOFF
+            except ValueError:
+                wait = DISCOVERY_FALLBACK_BACKOFF
+            time.sleep(max(0.0, min(wait, DISCOVERY_MAX_RETRY_WAIT)))
 
     def root(self) -> Any:
         return self._get("/api/v2/discovery")

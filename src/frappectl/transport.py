@@ -9,15 +9,14 @@ from __future__ import annotations
 
 import json
 import sys
-import time
 from collections.abc import Callable
-from typing import Any, BinaryIO, cast
+from typing import Any, cast
 
 import httpx
 
 from .credentials import ApiKeyProvider, CredentialProvider
 from .errors import FrappeError, extract_message
-from .site import SiteURL, endpoint_path
+from .site import SiteURL
 
 Document = dict[str, Any]
 Filters = list[Any] | dict[str, Any]
@@ -29,8 +28,6 @@ DEFAULT_TIMEOUT = 60.0
 # command recovers from a cold cache without ever hanging.
 DISCOVERY_MAX_RETRIES = 4
 DISCOVERY_FALLBACK_BACKOFF = 2.0
-DISCOVERY_MAX_RETRY_WAIT = 30.0
-
 # Hosts for which plain HTTP is tolerated: the API secret never leaves the box.
 _DEBUG_BODY_LIMIT = 2000
 
@@ -260,6 +257,18 @@ class FrappeTransport:
         Raises :class:`FrappeError` on any non-2xx response, or
         :class:`FrappeError` wrapping a transport error.
         """
+        resp = self.send(
+            method,
+            path,
+            params=_clean_params(params),
+            json=json_body,
+            data=data,
+            files=files,
+        )
+        return self.handle_response(resp)
+
+    def send(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        """Send one policy-checked request and return its undecoded response."""
         if self.read_only and method.upper() not in _SAFE_METHODS:
             raise FrappeError(
                 f"Refusing to send a {method.upper()} request: this profile is "
@@ -267,18 +276,13 @@ class FrappeTransport:
                 "writable profile, or pass -X GET for a whitelisted read method."
             )
         try:
-            resp = self._send(
-                method,
-                path,
-                params=_clean_params(params),
-                json=json_body,
-                data=data,
-                files=files,
-            )
+            return self._send(method, path, **kwargs)
         except httpx.HTTPError as e:
             raise FrappeError(f"Could not reach {self.site}: {e}") from e
 
-        return self._handle(resp)
+    def handle_response(self, response: httpx.Response) -> Any:
+        """Decode one response through the shared Frappe error policy."""
+        return self._handle(response)
 
     def _handle(self, resp: httpx.Response) -> Any:
         body: Any = None
@@ -361,47 +365,6 @@ class FrappeTransport:
             resp = _open()
         return resp
 
-    def list_documents(
-        self,
-        doctype: str,
-        *,
-        fields: list[str] | None = None,
-        filters: Filters | None = None,
-        order_by: str | None = None,
-        start: int = 0,
-        limit: int = 20,
-    ) -> tuple[list[Document], bool]:
-        """Return ``(rows, has_next_page)``."""
-        params: dict[str, Any] = {"start": start, "limit": limit}
-        if fields:
-            params["fields"] = json.dumps(fields)
-        if filters:
-            params["filters"] = json.dumps(filters)
-        if order_by:
-            params["order_by"] = order_by
-        if self.debug:
-            params["debug"] = "true"
-
-        try:
-            resp = self._send(
-                "GET",
-                endpoint_path("api", "v2", "document", doctype),
-                params=_clean_params(params),
-            )
-        except httpx.HTTPError as e:
-            raise FrappeError(f"Could not reach {self.site}: {e}") from e
-
-        if resp.status_code >= 400:
-            body = _safe_json(resp)
-            raise self._server_error(
-                extract_message(body, resp.status_code), resp.status_code, body
-            )
-
-        body = resp.json()
-        self._emit_server_debug(body)
-        rows = cast("list[Document]", body.get("data", []))
-        return rows, bool(body.get("has_next_page"))
-
     def request_page(
         self, path: str, *, params: dict[str, Any] | None = None
     ) -> tuple[list[Document], bool]:
@@ -431,239 +394,6 @@ class FrappeTransport:
         if isinstance(body, dict) and "data" in body:
             return body["data"]
         raise FrappeError("The server returned an unexpected response envelope.")
-
-    def get_document(self, doctype: str, name: str) -> Document:
-        return cast(
-            Document,
-            self.request(
-                "GET",
-                endpoint_path(
-                    "api", "v2", "document", doctype, name, trailing_slash=True
-                ),
-            ),
-        )
-
-    def create_document(self, doctype: str, data: Document) -> Document:
-        return cast(
-            Document,
-            self.request(
-                "POST", endpoint_path("api", "v2", "document", doctype), json_body=data
-            ),
-        )
-
-    def update_document(self, doctype: str, name: str, data: Document) -> Document:
-        return cast(
-            Document,
-            self.request(
-                "PATCH",
-                endpoint_path(
-                    "api", "v2", "document", doctype, name, trailing_slash=True
-                ),
-                json_body=data,
-            ),
-        )
-
-    def delete_document(self, doctype: str, name: str) -> Any:
-        return self.request(
-            "DELETE",
-            endpoint_path("api", "v2", "document", doctype, name, trailing_slash=True),
-        )
-
-    def run_doc_method(
-        self, doctype: str, name: str, method: str, params: dict[str, Any] | None = None
-    ) -> Any:
-        return self.request(
-            "POST",
-            endpoint_path(
-                "api",
-                "v2",
-                "document",
-                doctype,
-                name,
-                "method",
-                method,
-                trailing_slash=True,
-            ),
-            json_body=params or {},
-        )
-
-    def get_meta(self, doctype: str) -> Document:
-        return cast(Document, self.request("GET", f"/api/v2/doctype/{doctype}/meta"))
-
-    def get_count(self, doctype: str, filters: Filters | None = None) -> int:
-        params: dict[str, Any] = {}
-        if filters:
-            params["filters"] = json.dumps(filters)
-        return cast(
-            int, self.request("GET", f"/api/v2/doctype/{doctype}/count", params=params)
-        )
-
-    def call_method(
-        self,
-        method: str,
-        *,
-        params: dict[str, Any] | None = None,
-        http_method: str = "POST",
-    ) -> Any:
-        path = f"/api/v2/method/{method}"
-        verb = http_method.upper()
-        if verb == "GET":
-            return self.request("GET", path, params=params)
-        return self.request(verb, path, json_body=params or {})
-
-    def get_logged_user(self) -> str:
-        """Return the logged-in user, only when Frappe returned a trusted envelope."""
-        try:
-            resp = self._send("GET", "/api/v2/method/frappe.auth.get_logged_user")
-        except httpx.HTTPError as e:
-            raise FrappeError(f"Could not reach {self.site}: {e}") from e
-
-        body: Any = None
-        if resp.content:
-            try:
-                body = resp.json()
-            except (json.JSONDecodeError, ValueError):
-                body = resp.text
-
-        if resp.status_code >= 400:
-            return cast(str, self._handle(resp))
-
-        self._emit_server_debug(body)
-
-        if isinstance(body, dict) and "data" in body:
-            user = body["data"]
-            if isinstance(user, str) and user and user != "Guest":
-                return user
-
-        raise FrappeError(
-            "Authentication could not be verified: expected get_logged_user to "
-            "return JSON with a non-Guest data value."
-        )
-
-    def _retry_after_seconds(self, resp: httpx.Response) -> float:
-        """Seconds to wait before retrying, from Retry-After or a fallback."""
-        raw = resp.headers.get("Retry-After")
-        wait = DISCOVERY_FALLBACK_BACKOFF
-        if raw:
-            try:
-                wait = float(raw)
-            except ValueError:
-                wait = DISCOVERY_FALLBACK_BACKOFF
-        return max(0.0, min(wait, DISCOVERY_MAX_RETRY_WAIT))
-
-    def _discovery_get(self, path: str, *, params: dict[str, Any] | None = None) -> Any:
-        """GET a discovery endpoint, retrying transient 503s on a cold cache.
-
-        Retries are capped so a command never hangs. A persistent 503 surfaces
-        as a FrappeError like any other failure; a 404 (unsupported site or
-        unknown method) surfaces with ``status_code == 404`` for the caller to
-        interpret.
-        """
-        attempts = 0
-        while True:
-            try:
-                resp = self._send("GET", path, params=_clean_params(params))
-            except httpx.HTTPError as e:
-                raise FrappeError(f"Could not reach {self.site}: {e}") from e
-            if resp.status_code == 503 and attempts < DISCOVERY_MAX_RETRIES:
-                attempts += 1
-                time.sleep(self._retry_after_seconds(resp))
-                continue
-            return self._handle(resp)
-
-    def discovery_root(self) -> Any:
-        """Root discovery document; also a capability check for the feature."""
-        return self._discovery_get("/api/v2/discovery")
-
-    def discovery_search(self, query: str) -> Any:
-        return self._discovery_get("/api/v2/discovery/search", params={"q": query})
-
-    def discovery_list(self) -> Any:
-        return self._discovery_get("/api/v2/discovery/method")
-
-    def discovery_show(self, method: str) -> Any:
-        return self._discovery_get(f"/api/v2/discovery/method/{method}")
-
-    def discovery_doctype_list(self, doctype: str) -> Any:
-        """List all discoverable methods for one doctype (live introspection).
-
-        Includes both controller-specific and inherited standard methods, so it
-        is not backed by the global discovery cache.
-        """
-        return self._discovery_get(
-            endpoint_path("api", "v2", "discovery", "doctype", doctype)
-        )
-
-    def discovery_doctype_show(self, doctype: str, method: str) -> Any:
-        """Detail document for a single doctype method."""
-        return self._discovery_get(
-            endpoint_path(
-                "api", "v2", "discovery", "doctype", doctype, "method", method
-            )
-        )
-
-    def call_document_method(
-        self,
-        doctype: str,
-        name: str,
-        method: str,
-        *,
-        params: dict[str, Any] | None = None,
-        http_method: str = "POST",
-    ) -> Any:
-        """Invoke a whitelisted doctype method against an existing document.
-
-        Targets ``/api/v2/document/{doctype}/{name}/method/{method}`` directly,
-        as advertised by discovery — not the ``run_doc_method`` RPC. Path
-        components are URL-encoded so names containing ``/``, spaces or ``@``
-        are handled correctly.
-        """
-        path = endpoint_path("api", "v2", "document", doctype, name, "method", method)
-        verb = http_method.upper()
-        if verb == "GET":
-            return self.request("GET", path, params=params)
-        return self.request(verb, path, json_body=params or {})
-
-    def discovery_supported(self) -> bool:
-        """True if this site exposes method discovery (root is not a 404)."""
-        try:
-            self.discovery_root()
-            return True
-        except FrappeError as e:
-            if e.status_code == 404:
-                return False
-            raise
-
-    def upload_file(
-        self,
-        fileobj: BinaryIO,
-        filename: str,
-        *,
-        is_private: bool = False,
-        doctype: str | None = None,
-        docname: str | None = None,
-        fieldname: str | None = None,
-        folder: str = "Home",
-    ) -> Document:
-        data: dict[str, Any] = {
-            "is_private": 1 if is_private else 0,
-            "folder": folder,
-        }
-        if doctype:
-            data["doctype"] = doctype
-        if docname:
-            data["docname"] = docname
-        if fieldname:
-            data["fieldname"] = fieldname
-        return cast(
-            Document,
-            self.request(
-                "POST",
-                "/api/v2/method/upload_file",
-                data=data,
-                files={"file": (filename, fileobj)},
-            ),
-        )
 
 
 def _server_tracebacks(body: Any) -> list[str]:
