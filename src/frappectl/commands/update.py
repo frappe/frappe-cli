@@ -22,7 +22,7 @@ import typer
 
 from .. import __version__
 from ..config import config_dir
-from ..output import Ctx, confirm, err_console, fail, get_ctx, print_json
+from ..output import Ctx, err_console, fail, get_ctx, print_json
 
 _DIST = "frappectl"
 # PyPI's public JSON API for the package — the source of truth for what
@@ -82,8 +82,6 @@ def update(ctx: typer.Context) -> None:
 
     cmd = " ".join(_UPGRADE_ARGV)
     err_console.print(f"[dim]frappectl {__version__} — updating: {cmd}[/dim]")
-    if not confirm(c, f"Run `{cmd}` to update frappectl?"):
-        raise fail("Update cancelled.", 1)
 
     proc = subprocess.run(_UPGRADE_ARGV)
     if proc.returncode != 0:

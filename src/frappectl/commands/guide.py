@@ -32,7 +32,7 @@ DOCUMENTS (CRUD + lifecycle)
   frappectl doc create ToDo --set description="Follow up" --set priority=High
   cat invoice.json | frappectl doc create "Sales Invoice"  # JSON for child tables / nesting
   frappectl doc update ToDo abc123 --set status=Closed     # optimistic; --force to overwrite
-  frappectl doc delete ToDo abc123 --yes
+  frappectl doc delete ToDo abc123
   frappectl doc submit|cancel|amend "Sales Invoice" SINV-0001
 
   Filters: repeat -f field=value (also >, <, >=, <=, like), or use
@@ -53,7 +53,8 @@ DISCOVER METHODS
   frappectl method list --doctype "User"             # methods on one DocType (live)
   frappectl method show frappe.tests.test_api.test   # rpc detail: params, endpoint
   frappectl method show --doctype "User" add_comment # doctype method detail
-  frappectl method call "User" Administrator add_comment -F comment_type=Comment
+  frappectl method call gameplan.api.get_unread_count -F project=1   # rpc call
+  frappectl method call add_comment --doctype "User" --name Administrator -F comment_type=Comment
 
 RAW API
   frappectl api method/frappe.client.get_count -F doctype=User    # -F typed, -f string
@@ -63,7 +64,7 @@ RAW API
   # Background jobs:   frappectl doc list "RQ Job"
 
 TIPS FOR AGENTS
-  - Mutations refuse to run non-interactively without --yes.
+  - Mutations (delete, cancel, update) run immediately, with no confirmation prompt.
   - `frappectl <command> --help` documents every flag.
 """
 

@@ -64,9 +64,6 @@ def _root(
     json_out: bool = typer.Option(
         False, "--json", help="Force JSON output (default when piped)."
     ),
-    yes: bool = typer.Option(
-        False, "--yes", "-y", help="Assume yes for confirmation prompts."
-    ),
     debug: bool = typer.Option(
         False,
         "--debug",
@@ -81,7 +78,7 @@ def _root(
     ),
 ) -> None:
     """Global options apply to every subcommand."""
-    ctx.obj = Ctx(json_mode=json_out, assume_yes=yes, profile=site, debug=debug)
+    ctx.obj = Ctx(json_mode=json_out, profile=site, debug=debug)
     # Passive, best-effort "a newer version exists" nudge. No-op in JSON/piped
     # mode and for dev checkouts; network-throttled to once a day.
     update_cmd.notify_if_outdated(ctx.obj)
@@ -91,7 +88,7 @@ def _root(
 # front of argv so they work in gh-style trailing position too, e.g.
 #   frappectl doc list "Sales Invoice" --json
 # is rewritten to `frappectl --json doc list "Sales Invoice"`.
-_VALUELESS_GLOBALS = {"--json", "--yes", "-y", "--debug"}
+_VALUELESS_GLOBALS = {"--json", "--debug"}
 _VALUED_GLOBALS = {"-s", "--site"}
 
 
@@ -108,8 +105,7 @@ def _hoist_globals(argv: list[str]) -> list[str]:
             i += 1
             continue
         if not seen_ddash and tok in _VALUELESS_GLOBALS:
-            # Normalize -y to --yes for the callback.
-            hoisted.append("--yes" if tok == "-y" else tok)
+            hoisted.append(tok)
             i += 1
             continue
         if not seen_ddash and tok in _VALUED_GLOBALS:

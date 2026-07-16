@@ -39,9 +39,9 @@ def run(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
     """Invoke the installed CLI as a subprocess and capture its output.
 
     Output is captured (not a TTY), so the CLI auto-selects JSON — no ``--json``
-    flag is needed. Note ``--json``/``--yes``/``--site`` are *global* options and
-    must precede the command group when passed explicitly (e.g. ``--yes doc
-    delete ...``).
+    flag is needed. Note ``--json``/``--site`` are *global* options and must
+    precede the command group when passed explicitly (e.g. ``--site foo doc
+    list ...``).
     """
     return subprocess.run(
         [sys.executable, "-m", "frappectl", *args],
@@ -111,8 +111,7 @@ def test_doc_crud_lifecycle():
         updated = run_json("doc", "update", DOCTYPE, name, "--set", "status=Closed")
         assert updated["status"] == "Closed"
     finally:
-        # --yes is a global option and must precede the command group.
-        deleted = run("--yes", "doc", "delete", DOCTYPE, name)
+        deleted = run("doc", "delete", DOCTYPE, name)
         assert deleted.returncode == 0, deleted.stderr
 
     # After deletion the doc is gone: a get fails with exit code 1.
@@ -176,11 +175,19 @@ def test_method_call_invokes_doctype_method():
     name = created["name"]
     try:
         comment = run_json(
-            "method", "call", DOCTYPE, name, DOC_METHOD, "-f", f"text={marker}"
+            "method",
+            "call",
+            DOC_METHOD,
+            "--doctype",
+            DOCTYPE,
+            "--name",
+            name,
+            "-f",
+            f"text={marker}",
         )
         assert marker in json.dumps(comment)
     finally:
-        deleted = run("--yes", "doc", "delete", DOCTYPE, name)
+        deleted = run("doc", "delete", DOCTYPE, name)
         assert deleted.returncode == 0, deleted.stderr
 
 
@@ -189,14 +196,6 @@ def test_method_show_missing_reports_clean_error():
     assert proc.returncode == 1
     assert proc.stdout.strip() == ""  # no half-baked JSON on stdout
     assert proc.stderr.strip()  # a human-readable error on stderr
-
-
-def test_delete_refuses_without_confirmation():
-    # Non-interactive delete without --yes must refuse (usage error, code 2)
-    # before it ever touches the server.
-    proc = run("doc", "delete", DOCTYPE, "does-not-exist")
-    assert proc.returncode == 2
-    assert "--yes" in proc.stderr
 
 
 def test_missing_doc_reports_clean_error():
