@@ -292,6 +292,55 @@ def test_error_includes_hint(env):
 
 
 @respx.mock
+def test_server_exception_nudges_debug(env):
+    # A server error carrying a full traceback nudges the caller to re-run with
+    # --debug, without dumping the traceback itself.
+    respx.get(f"{BASE}/api/v2/method/x.y").mock(
+        return_value=httpx.Response(
+            500,
+            json={"errors": [{"exception": "Traceback...\nKeyError: 'z'"}]},
+        )
+    )
+    result = runner.invoke(app, ["--json", "method", "call", "x.y", "-X", "GET"])
+    assert result.exit_code == 1
+    assert "--debug" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+@respx.mock
+def test_no_debug_nudge_under_debug(env):
+    # With --debug already on, the traceback is printed and there is no nudge.
+    respx.get(f"{BASE}/api/v2/method/x.y").mock(
+        return_value=httpx.Response(
+            500,
+            json={"errors": [{"exception": "Traceback...\nKeyError: 'z'"}]},
+        )
+    )
+    result = runner.invoke(
+        app, ["--json", "--debug", "method", "call", "x.y", "-X", "GET"]
+    )
+    assert result.exit_code == 1
+    assert "[server traceback]" in result.stderr
+    assert "re-run with --debug" not in result.stderr
+
+
+@respx.mock
+def test_no_debug_nudge_for_plain_error(env):
+    # An error without a server traceback must not suggest --debug.
+    respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
+        return_value=httpx.Response(
+            404,
+            json={
+                "errors": [{"type": "DoesNotExistError", "message": "ToDo X not found"}]
+            },
+        )
+    )
+    result = runner.invoke(app, ["--json", "doc", "get", "ToDo", "X"])
+    assert result.exit_code == 1
+    assert "--debug" not in result.stderr
+
+
+@respx.mock
 def test_api_method_get(env):
     respx.get(f"{BASE}/api/v2/method/frappe.client.get_count").mock(
         return_value=httpx.Response(200, json={"data": 5})

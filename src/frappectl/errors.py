@@ -83,12 +83,24 @@ def error_hint(message: str | None) -> str | None:
 
 
 class FrappeError(Exception):
-    """A server-side error, already reduced to a clean message."""
+    """A server-side error, already reduced to a clean message.
 
-    def __init__(self, message: str, status_code: int | None = None):
+    ``has_server_exception`` records that the response carried a full server
+    traceback that was *not* shown (i.e. ``--debug`` was off). The print site
+    uses it to nudge the caller to re-run with ``--debug``.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int | None = None,
+        *,
+        has_server_exception: bool = False,
+    ):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
+        self.has_server_exception = has_server_exception
 
 
 class UsageError(FrappeError):
