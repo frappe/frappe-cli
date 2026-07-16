@@ -54,6 +54,7 @@ def test_repository_restores_secret_when_config_write_fails():
         )
 
     assert secrets.data["acme"] == "old:secret"
+    assert configs.data == {"default": None, "profiles": {}}
     assert isinstance(exc.value.__cause__, OSError)
 
 

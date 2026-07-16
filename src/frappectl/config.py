@@ -204,7 +204,7 @@ class ProfileRepository:
         *,
         make_default: bool = True,
     ) -> None:
-        data = self.config_store.load()
+        data = deepcopy(self.config_store.load())
         previous_secret = self.secret_store.get(profile.name)
         self.secret_store.set(profile.name, credential.serialize())
         data["profiles"][profile.name] = _profile_entry(profile)
@@ -219,7 +219,7 @@ class ProfileRepository:
             ) from e
 
     def rename(self, old_name: str, new_name: str) -> None:
-        data = self.config_store.load()
+        data = deepcopy(self.config_store.load())
         profiles = cast("dict[str, dict[str, Any]]", data["profiles"])
         if old_name not in profiles:
             raise ConfigError(f"No such profile: {old_name}")
@@ -258,7 +258,7 @@ class ProfileRepository:
                 ) from e
 
     def remove(self, name: str) -> None:
-        data = self.config_store.load()
+        data = deepcopy(self.config_store.load())
         original = deepcopy(data)
         profiles = cast("dict[str, dict[str, Any]]", data["profiles"])
         if name not in profiles:
