@@ -254,15 +254,9 @@ def delete_doc(
     ctx: typer.Context,
     doctype: str = typer.Argument(...),
     name: str = typer.Argument(...),
-    yes: bool = typer.Option(False, "--yes", help="Skip confirmation."),
 ) -> None:
     """Delete a document."""
     c = get_ctx(ctx)
-    if yes:
-        c.assume_yes = True
-    from ..output import confirm
-
-    confirm(c, f"Delete {doctype} {name}?")
     client = get_client(c)
     try:
         client.delete_document(doctype, name)
@@ -301,16 +295,9 @@ def cancel_doc(
     ctx: typer.Context,
     doctype: str = typer.Argument(...),
     name: str = typer.Argument(...),
-    yes: bool = typer.Option(False, "--yes", help="Skip confirmation."),
 ) -> None:
     """Cancel a submitted document (docstatus 2)."""
-    c = get_ctx(ctx)
-    if yes:
-        c.assume_yes = True
-    from ..output import confirm
-
-    confirm(c, f"Cancel {doctype} {name}?")
-    _lifecycle(c, doctype, name, "cancel", "cancelled")
+    _lifecycle(get_ctx(ctx), doctype, name, "cancel", "cancelled")
 
 
 @app.command("amend")

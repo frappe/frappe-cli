@@ -1,7 +1,7 @@
 """Output + interaction contract.
 
-TTY  -> rich tables, colours, confirmation prompts.
-Piped / ``--json`` -> clean JSON on stdout, no prompts.
+TTY  -> rich tables and colours.
+Piped / ``--json`` -> clean JSON on stdout.
 
 Exit codes: 0 success, 1 failure, 2 usage error. Detail lives in the message,
 not the code.
@@ -28,11 +28,9 @@ class Ctx:
     def __init__(
         self,
         json_mode: bool,
-        assume_yes: bool,
         profile: str | None = None,
         debug: bool = False,
     ):
-        self.assume_yes = assume_yes
         self.profile = profile
         self.debug = debug
         # --json forces JSON; otherwise JSON whenever stdout is not a TTY.
@@ -65,22 +63,6 @@ def fail(message: str, code: int = 1) -> "typer.Exit":
     if hint:
         err_console.print(f"[dim]tip:[/dim] {hint}")
     return typer.Exit(code)
-
-
-def confirm(ctx: Ctx, prompt: str) -> bool:
-    """Confirm a destructive action.
-
-    On a TTY: interactive y/N. Non-interactive: require ``--yes`` up front.
-    """
-    if ctx.assume_yes:
-        return True
-    if not ctx.is_tty:
-        raise fail(
-            f"{prompt} Refusing without confirmation; pass --yes to proceed "
-            "non-interactively.",
-            2,
-        )
-    return typer.confirm(prompt)
 
 
 # --- table rendering -------------------------------------------------------

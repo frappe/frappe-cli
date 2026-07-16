@@ -32,7 +32,7 @@ class FakeDist:
 
 def test_refuses_editable(monkeypatch):
     monkeypatch.setattr(update, "_dist", lambda: FakeDist(editable=True))
-    result = runner.invoke(app, ["--yes", "update"])
+    result = runner.invoke(app, ["update"])
     assert result.exit_code == 1
     assert "editable" in result.stderr
 
@@ -40,7 +40,7 @@ def test_refuses_editable(monkeypatch):
 def test_refuses_without_uv(monkeypatch):
     monkeypatch.setattr(update, "_dist", lambda: FakeDist())
     monkeypatch.setattr(update.shutil, "which", lambda n: None)
-    result = runner.invoke(app, ["--yes", "update"])
+    result = runner.invoke(app, ["update"])
     assert result.exit_code == 1
     assert "uv" in result.stderr
 
@@ -55,7 +55,7 @@ def test_runs_uv_tool_upgrade(monkeypatch):
         return subprocess.CompletedProcess(argv, 0)
 
     monkeypatch.setattr(update.subprocess, "run", fake_run)
-    result = runner.invoke(app, ["--yes", "update"])
+    result = runner.invoke(app, ["update"])
     assert result.exit_code == 0
     assert calls == [_UPGRADE]
 
@@ -66,7 +66,7 @@ def test_propagates_failure(monkeypatch):
     monkeypatch.setattr(
         update.subprocess, "run", lambda argv: subprocess.CompletedProcess(argv, 3)
     )
-    result = runner.invoke(app, ["--yes", "update"])
+    result = runner.invoke(app, ["update"])
     assert result.exit_code == 3
     assert "Update failed" in result.stderr
 
@@ -77,22 +77,11 @@ def test_json_output(monkeypatch):
     monkeypatch.setattr(
         update.subprocess, "run", lambda argv: subprocess.CompletedProcess(argv, 0)
     )
-    result = runner.invoke(app, ["--yes", "--json", "update"])
+    result = runner.invoke(app, ["--json", "update"])
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["ok"] is True
     assert payload["command"] == _UPGRADE
-
-
-def test_cancelled_when_not_confirmed(monkeypatch):
-    monkeypatch.setattr(update, "_dist", lambda: FakeDist())
-    monkeypatch.setattr(update.shutil, "which", lambda n: "/usr/bin/uv")
-    ran = []
-    monkeypatch.setattr(update.subprocess, "run", lambda argv: ran.append(argv))
-    # No --yes and non-TTY (CliRunner) -> confirm() refuses to proceed.
-    result = runner.invoke(app, ["update"])
-    assert result.exit_code == 2
-    assert ran == []
 
 
 # --- passive update notification ------------------------------------------
@@ -180,7 +169,7 @@ def test_latest_version_failed_refresh_keeps_last_known(monkeypatch, tmp_path):
 def _tty_ctx():
     from frappectl.output import Ctx
 
-    ctx = Ctx(json_mode=False, assume_yes=False)
+    ctx = Ctx(json_mode=False)
     ctx.is_tty = True
     ctx.json = False
     return ctx

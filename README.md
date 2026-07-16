@@ -19,7 +19,7 @@ frappectl doc get "Sales Invoice" SINV-0001
 frappectl doc create ToDo --set description="Follow up" --set priority=High
 cat invoice.json | frappectl doc create "Sales Invoice"
 frappectl doc submit "Sales Invoice" SINV-0001
-frappectl doc delete ToDo abc123 --yes
+frappectl doc delete ToDo abc123
 
 frappectl doctype show "Sales Invoice" --json         # discover the schema first
 frappectl report run "Accounts Receivable" -f company="Frappe" --json
@@ -107,10 +107,10 @@ method, make the safe verb explicit: `frappectl api method/… -X GET`.
 
 ## Output and scripting
 
-- TTY → rich tables, colours and confirmation prompts.
+- TTY → rich tables and colours.
 - Pipe or `--json` → clean JSON on stdout. Logs and errors stay on stderr, so piping to
   `jq` is safe.
-- Mutations → refuse to run non-interactively without `--yes`.
+- Mutations → run immediately, no confirmation prompt. It's assumed you know what you're doing.
 - Exit codes → `0` success, `1` failure, `2` usage error.
 - `--debug` → traces method, URL and headers to stderr. Credentials are redacted. For
   endpoints that expose it, such as `doc list`, it also prints server-side SQL.
@@ -126,7 +126,7 @@ it won't corrupt `--json` output.
 | `frappectl doc get <DocType> <name>` | Fetch one document. |
 | `frappectl doc create <DocType>` | Create from `--set` scalars and/or piped/`--input` JSON. |
 | `frappectl doc update <DocType> <name>` | Update optimistically; use `--force` to override. |
-| `frappectl doc delete <DocType> <name>` | Delete after confirmation, or pass `--yes`. |
+| `frappectl doc delete <DocType> <name>` | Delete a document. |
 | `frappectl doc submit\|cancel\|amend` | Run document lifecycle actions. |
 | `frappectl doctype list` / `frappectl doctype show <name>` | Discover doctypes and schema. |
 | `frappectl report run <name>` | Run a report with the same filter syntax as `doc list`. |

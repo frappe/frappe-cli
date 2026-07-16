@@ -18,7 +18,6 @@ runner = CliRunner()
         (["doc", "list", "ToDo", "--json"], ["--json", "doc", "list", "ToDo"]),
         (["-s", "raven", "doc", "list", "X"], ["--site", "raven", "doc", "list", "X"]),
         (["doc", "list", "X", "-s", "raven"], ["--site", "raven", "doc", "list", "X"]),
-        (["doc", "delete", "ToDo", "x", "-y"], ["--yes", "doc", "delete", "ToDo", "x"]),
         (["--site=acme", "doc", "list", "X"], ["--site", "acme", "doc", "list", "X"]),
         # tokens after `--` are left alone
         (["api", "p", "--", "--json"], ["api", "p", "--", "--json"]),
@@ -85,9 +84,15 @@ def test_doc_list_meta_driven_fields(env):
 
 
 @respx.mock
-def test_delete_requires_yes_noninteractive(env):
+def test_delete_runs_without_confirmation(env):
+    # No confirmation gate: delete hits the server and reports success.
+    route = respx.delete(f"{BASE}/api/v2/document/ToDo/X/").mock(
+        return_value=httpx.Response(200, json={"data": {}})
+    )
     result = runner.invoke(app, ["--json", "doc", "delete", "ToDo", "X"])
-    assert result.exit_code == 2  # refuses without --yes when non-interactive
+    assert result.exit_code == 0
+    assert route.called
+    assert '"deleted": "X"' in result.stdout
 
 
 @respx.mock
