@@ -16,7 +16,7 @@ from .commands import method as method_cmd
 from .commands import update as update_cmd
 from .config import ConfigError
 from .errors import FrappeError, UsageError
-from .output import Ctx, fail
+from .output import ApplicationContext, fail
 
 app = typer.Typer(
     name="frappectl",
@@ -75,7 +75,7 @@ def _root(
     ),
 ) -> None:
     """Global options apply to every subcommand."""
-    ctx.obj = Ctx(json_mode=json_out, profile=site, debug=debug)
+    ctx.obj = ApplicationContext(json_mode=json_out, profile=site, debug=debug)
     update_cmd.notify_if_outdated(ctx.obj)
 
 
