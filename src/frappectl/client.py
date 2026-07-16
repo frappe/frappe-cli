@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 from typing import Any, BinaryIO
 
@@ -10,7 +9,7 @@ from .credentials import CredentialProvider
 from .resources import DiscoveryAPI, DocumentsAPI, FilesAPI, MethodsAPI
 from .transport import DEFAULT_TIMEOUT, Document, Filters, FrappeTransport
 
-__all__ = ["Document", "Filters", "FrappeClient", "time"]
+__all__ = ["Document", "Filters", "FrappeClient"]
 
 
 class FrappeClient:
