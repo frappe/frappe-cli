@@ -228,7 +228,7 @@ def show_method(
 
 
 def _pick_verb(http_methods: list[Any]) -> str:
-    """Choose a verb for invoking a doctype method from its advertised set.
+    """Choose a verb for invoking a method from its advertised set.
 
     Prefer POST when the method offers it (a ``call`` usually intends to act);
     otherwise use the single advertised verb, defaulting to POST.
@@ -239,12 +239,54 @@ def _pick_verb(http_methods: list[Any]) -> str:
     return verbs[0] if verbs else "POST"
 
 
+def _collect_params(fields: list[str], raw_fields: list[str]) -> dict[str, Any]:
+    """Merge typed ``-F`` and always-string ``-f`` params into one dict."""
+    params: dict[str, Any] = {}
+    if fields:
+        params.update(helpers.parse_method_params(fields))
+    for item in raw_fields:
+        if "=" not in item:
+            raise fail(f"-f expects key=value, got {item!r}", 2)
+        k, v = item.split("=", 1)
+        params[k.strip()] = v
+    return params
+
+
+def _resolve_verb(client: Any, method: str, doctype: Optional[str]) -> str:
+    """Consult discovery for the method's advertised verbs and pick one.
+
+    Used only when the caller did not pass an explicit ``-X``. Translates the
+    two ambiguous 404 shapes into human messages, matching ``show``.
+    """
+    try:
+        if doctype:
+            detail = client.discovery_doctype_show(doctype, method)
+        else:
+            detail = client.discovery_show(method)
+    except FrappeError as e:
+        if e.status_code == 404:
+            if client.discovery_supported():
+                raise fail(_METHOD_NOT_FOUND)
+            raise fail(_NOT_AVAILABLE)
+        raise fail(e.message)
+    return _pick_verb(
+        detail.get("http_methods") or [] if isinstance(detail, dict) else []
+    )
+
+
 @app.command("call")
 def call_method(
     ctx: typer.Context,
-    doctype: str = typer.Argument(..., help="DocType, e.g. 'User'."),
-    name: str = typer.Argument(..., help="Existing document name."),
-    method: str = typer.Argument(..., help="Method name, e.g. 'add_comment'."),
+    method: str = typer.Argument(
+        ...,
+        help="RPC path (e.g. 'frappe.ping'), or the method name with --doctype.",
+    ),
+    doctype: Optional[str] = typer.Option(
+        None, "--doctype", help="Invoke METHOD against a document of this DocType."
+    ),
+    name: Optional[str] = typer.Option(
+        None, "--name", help="Existing document name. Required with --doctype."
+    ),
     fields: list[str] = typer.Option(
         [], "-F", "--field", help="key=value param (typed). Repeatable."
     ),
@@ -258,38 +300,30 @@ def call_method(
         help="HTTP verb. Default: chosen from the method's detail (POST if offered).",
     ),
 ) -> None:
-    """Invoke a whitelisted doctype method against an existing document."""
+    """Invoke a whitelisted method: an RPC path, or a doctype method with --doctype/--name."""
     c = get_ctx(ctx)
     client = get_client(c)
 
-    params: dict[str, Any] = {}
-    if fields:
-        params.update(helpers.parse_method_params(fields))
-    for item in raw_fields:
-        if "=" not in item:
-            raise fail(f"-f expects key=value, got {item!r}", 2)
-        k, v = item.split("=", 1)
-        params[k.strip()] = v
+    # --doctype and --name go together: a doctype method needs a document to
+    # act on, and a document name is meaningless without a doctype.
+    if doctype and not name:
+        raise fail("--name is required when --doctype is given.", 2)
+    if name and not doctype:
+        raise fail("--name is only valid together with --doctype.", 2)
 
-    verb = http_method.upper() if http_method else None
-    if verb is None:
-        # No explicit verb: consult the detail document to pick GET vs POST.
-        try:
-            detail = client.discovery_doctype_show(doctype, method)
-        except FrappeError as e:
-            if e.status_code == 404:
-                if client.discovery_supported():
-                    raise fail(_METHOD_NOT_FOUND)
-                raise fail(_NOT_AVAILABLE)
-            raise fail(e.message)
-        verb = _pick_verb(
-            detail.get("http_methods") or [] if isinstance(detail, dict) else []
-        )
+    params = _collect_params(fields, raw_fields)
+
+    verb = (
+        http_method.upper() if http_method else _resolve_verb(client, method, doctype)
+    )
 
     try:
-        result = client.call_document_method(
-            doctype, name, method, params=params, http_method=verb
-        )
+        if doctype and name:
+            result = client.call_document_method(
+                doctype, name, method, params=params, http_method=verb
+            )
+        else:
+            result = client.call_method(method, params=params, http_method=verb)
     except FrappeError as e:
         raise fail(e.message)
     print_json(result)

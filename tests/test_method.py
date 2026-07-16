@@ -395,9 +395,11 @@ def test_method_call_picks_post_and_invokes_document_endpoint(env):
             "--json",
             "method",
             "call",
-            "User",
-            "Administrator",
             "add_comment",
+            "--doctype",
+            "User",
+            "--name",
+            "Administrator",
             "-F",
             "comment_type=Comment",
         ],
@@ -423,9 +425,11 @@ def test_method_call_explicit_get_skips_detail_fetch(env):
             "--json",
             "method",
             "call",
-            "User",
-            "Administrator",
             "get_something",
+            "--doctype",
+            "User",
+            "--name",
+            "Administrator",
             "-X",
             "GET",
         ],
@@ -443,10 +447,92 @@ def test_method_call_url_encodes_document_name(env):
     ).mock(return_value=httpx.Response(200, json={"data": {}}))
     result = runner.invoke(
         app,
-        ["--json", "method", "call", "User", "a/b@x", "add_comment", "-X", "POST"],
+        [
+            "--json",
+            "method",
+            "call",
+            "add_comment",
+            "--doctype",
+            "User",
+            "--name",
+            "a/b@x",
+            "-X",
+            "POST",
+        ],
     )
     assert result.exit_code == 0
     assert invoke.called
+
+
+@respx.mock
+def test_method_call_rpc_picks_verb_from_discovery(env):
+    # No -X and no --doctype: RPC path, verb chosen from discovery detail.
+    respx.get(f"{BASE}/api/v2/discovery/method/gameplan.api.get_unread_count").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "kind": "rpc",
+                    "path": "gameplan.api.get_unread_count",
+                    "http_methods": ["GET", "POST"],
+                }
+            },
+        )
+    )
+    invoke = respx.post(f"{BASE}/api/v2/method/gameplan.api.get_unread_count").mock(
+        return_value=httpx.Response(200, json={"data": {"count": 3}})
+    )
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "method",
+            "call",
+            "gameplan.api.get_unread_count",
+            "-F",
+            "project=1",
+        ],
+    )
+    assert result.exit_code == 0, result.stderr
+    assert invoke.called
+    import json as _json
+
+    assert _json.loads(invoke.calls.last.request.content)["project"] == 1
+
+
+@respx.mock
+def test_method_call_rpc_explicit_get_hits_method_endpoint(env):
+    detail = respx.get(f"{BASE}/api/v2/discovery/method/frappe.ping").mock(
+        return_value=httpx.Response(200, json={"data": {}})
+    )
+    invoke = respx.get(f"{BASE}/api/v2/method/frappe.ping").mock(
+        return_value=httpx.Response(200, json={"data": "pong"})
+    )
+    result = runner.invoke(
+        app, ["--json", "method", "call", "frappe.ping", "-X", "GET"]
+    )
+    assert result.exit_code == 0, result.stderr
+    assert invoke.called
+    # Explicit verb short-circuits the discovery lookup.
+    assert not detail.called
+
+
+@respx.mock
+def test_method_call_rejects_doctype_without_name(env):
+    result = runner.invoke(
+        app, ["--json", "method", "call", "add_comment", "--doctype", "User"]
+    )
+    assert result.exit_code == 2
+    assert "--name is required" in result.stderr
+
+
+@respx.mock
+def test_method_call_rejects_name_without_doctype(env):
+    result = runner.invoke(
+        app, ["--json", "method", "call", "add_comment", "--name", "Administrator"]
+    )
+    assert result.exit_code == 2
+    assert "only valid together with --doctype" in result.stderr
 
 
 @respx.mock

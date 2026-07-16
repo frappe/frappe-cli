@@ -130,6 +130,8 @@ it won't corrupt `--json` output.
 | `frappectl doc submit\|cancel\|amend` | Run document lifecycle actions. |
 | `frappectl doctype list` / `frappectl doctype show <name>` | Discover doctypes and schema. |
 | `frappectl report run <name>` | Run a report with the same filter syntax as `doc list`. |
+| `frappectl method search\|list\|show` | Discover whitelisted methods (RPC paths and doctype methods). |
+| `frappectl method call <path>` | Invoke an RPC method; add `--doctype/--name` to call a doctype method. |
 | `frappectl file upload\|download` | Transfer files; upload supports `--doctype/--name` and `--private`. |
 | `frappectl api <path>` | Call raw v2 APIs: `frappectl api method/<path> -F key=value`. |
 | `frappectl guide` | Print the agent primer; no site or authentication needed. |
