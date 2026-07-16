@@ -227,18 +227,6 @@ def show_method(
         _show_rpc(c, result, method)
 
 
-def _pick_verb(http_methods: list[Any]) -> str:
-    """Choose a verb for invoking a method from its advertised set.
-
-    Prefer POST when the method offers it (a ``call`` usually intends to act);
-    otherwise use the single advertised verb, defaulting to POST.
-    """
-    verbs = [str(v).upper() for v in http_methods]
-    if "POST" in verbs:
-        return "POST"
-    return verbs[0] if verbs else "POST"
-
-
 def _collect_params(fields: list[str], raw_fields: list[str]) -> dict[str, Any]:
     """Merge typed ``-F`` and always-string ``-f`` params into one dict."""
     params: dict[str, Any] = {}
@@ -252,26 +240,14 @@ def _collect_params(fields: list[str], raw_fields: list[str]) -> dict[str, Any]:
     return params
 
 
-def _resolve_verb(client: Any, method: str, doctype: Optional[str]) -> str:
-    """Consult discovery for the method's advertised verbs and pick one.
+def _default_verb(client: Any) -> str:
+    """Pick a default HTTP verb without consulting discovery.
 
-    Used only when the caller did not pass an explicit ``-X``. Translates the
-    two ambiguous 404 shapes into human messages, matching ``show``.
+    A ``call`` usually intends to act, so assume POST. On a read-only session
+    a POST would be rejected client-side, so fall back to GET — the only verb
+    that can succeed there.
     """
-    try:
-        if doctype:
-            detail = client.discovery_doctype_show(doctype, method)
-        else:
-            detail = client.discovery_show(method)
-    except FrappeError as e:
-        if e.status_code == 404:
-            if client.discovery_supported():
-                raise fail(_METHOD_NOT_FOUND)
-            raise fail(_NOT_AVAILABLE)
-        raise fail(e.message)
-    return _pick_verb(
-        detail.get("http_methods") or [] if isinstance(detail, dict) else []
-    )
+    return "GET" if client.read_only else "POST"
 
 
 @app.command("call")
@@ -297,7 +273,7 @@ def call_method(
         None,
         "--method",
         "-X",
-        help="HTTP verb. Default: chosen from the method's detail (POST if offered).",
+        help="HTTP verb. Default: POST (GET on a read-only session).",
     ),
 ) -> None:
     """Invoke a whitelisted method: an RPC path, or a doctype method with --doctype/--name."""
@@ -313,9 +289,7 @@ def call_method(
 
     params = _collect_params(fields, raw_fields)
 
-    verb = (
-        http_method.upper() if http_method else _resolve_verb(client, method, doctype)
-    )
+    verb = http_method.upper() if http_method else _default_verb(client)
 
     try:
         if doctype and name:
