@@ -18,12 +18,7 @@ import httpx
 
 from .errors import FrappeError, extract_message
 
-# A Frappe document (or any JSON object) as returned by the REST API: a mapping
-# keyed by fieldname. The values are unchecked server JSON, hence ``Any``.
 Document = dict[str, Any]
-
-# Query filters accepted by the list endpoints: either the list-of-lists form
-# (``[["field", "op", value], ...]``) or the dict shorthand (``{"field": value}``).
 Filters = list[Any] | dict[str, Any]
 
 DEFAULT_TIMEOUT = 60.0
@@ -32,13 +27,12 @@ DEFAULT_TIMEOUT = 60.0
 # generation. Retry a bounded number of times, honouring Retry-After, so a
 # command recovers from a cold cache without ever hanging.
 DISCOVERY_MAX_RETRIES = 4
-DISCOVERY_FALLBACK_BACKOFF = 2.0  # seconds, when Retry-After is absent
-DISCOVERY_MAX_RETRY_WAIT = 30.0  # never wait longer than this per attempt
+DISCOVERY_FALLBACK_BACKOFF = 2.0
+DISCOVERY_MAX_RETRY_WAIT = 30.0
 
 # Hosts for which plain HTTP is tolerated: the API secret never leaves the box.
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 
-# Never print more than this much of a request body in --debug (file uploads etc.)
 _DEBUG_BODY_LIMIT = 2000
 
 # HTTP methods that never mutate server state. A read-only profile is allowed
@@ -79,8 +73,6 @@ class FrappeClient:
         self.read_only = read_only
         self._token = token
         self._token_type = token_type
-        # Called on a 401 to obtain a fresh token (OAuth refresh). Returns the
-        # new access token, or None if it could not be refreshed.
         self._on_unauthorized = on_unauthorized
 
         # Refuse to put the credential on the wire in cleartext. Plain HTTP is
@@ -101,12 +93,9 @@ class FrappeClient:
                 "User-Agent": "frappectl",
             },
             timeout=timeout,
-            # Follow redirects (e.g. Frappe's trailing-slash normalization).
             # httpx strips the Authorization header on cross-origin redirects,
             # so the credential is never handed to a host we did not configure.
             follow_redirects=True,
-            # --debug wires request/response logging straight into the transport,
-            # so every request (including retries and redirects) is traced.
             event_hooks=(
                 {"request": [self._log_request], "response": [self._log_response]}
                 if debug
@@ -122,8 +111,6 @@ class FrappeClient:
 
     def __exit__(self, *exc: object) -> None:
         self.close()
-
-    # --- debug tracing -----------------------------------------------------
 
     @staticmethod
     def _dbg(line: str) -> None:
@@ -203,8 +190,6 @@ class FrappeClient:
             status_code,
             has_server_exception=not self.debug and bool(_server_tracebacks(body)),
         )
-
-    # --- core request ------------------------------------------------------
 
     def _try_refresh(self) -> bool:
         """Obtain a fresh token via the refresh callback and re-arm the header.
@@ -349,8 +334,6 @@ class FrappeClient:
             resp = _open()
         return resp
 
-    # --- documents ---------------------------------------------------------
-
     def list_documents(
         self,
         doctype: str,
@@ -370,7 +353,6 @@ class FrappeClient:
         if order_by:
             params["order_by"] = order_by
         if self.debug:
-            # Ask the server to echo the generated SQL (dev server / system user).
             params["debug"] = "true"
 
         try:
@@ -422,8 +404,6 @@ class FrappeClient:
             json_body=params or {},
         )
 
-    # --- collection --------------------------------------------------------
-
     def get_meta(self, doctype: str) -> Document:
         return cast(Document, self.request("GET", f"/api/v2/doctype/{doctype}/meta"))
 
@@ -434,8 +414,6 @@ class FrappeClient:
         return cast(
             int, self.request("GET", f"/api/v2/doctype/{doctype}/count", params=params)
         )
-
-    # --- methods -----------------------------------------------------------
 
     def call_method(
         self,
@@ -448,7 +426,6 @@ class FrappeClient:
         verb = http_method.upper()
         if verb == "GET":
             return self.request("GET", path, params=params)
-        # Honor the caller's verb (PUT/DELETE/…) rather than silently forcing POST.
         return self.request(verb, path, json_body=params or {})
 
     def get_logged_user(self) -> str:
@@ -480,16 +457,12 @@ class FrappeClient:
             "return JSON with a non-Guest data value."
         )
 
-    # --- discovery ---------------------------------------------------------
-
     def _retry_after_seconds(self, resp: httpx.Response) -> float:
         """Seconds to wait before retrying, from Retry-After or a fallback."""
         raw = resp.headers.get("Retry-After")
         wait = DISCOVERY_FALLBACK_BACKOFF
         if raw:
             try:
-                # Retry-After is most commonly an integer number of seconds.
-                # An HTTP-date form is possible but rare here; fall back if so.
                 wait = float(raw)
             except ValueError:
                 wait = DISCOVERY_FALLBACK_BACKOFF

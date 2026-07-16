@@ -87,9 +87,6 @@ def _drive_login(**login_kwargs: object) -> tuple[oauth.Tokens, str, dict[str, s
     return tokens, client_id, captured
 
 
-# --- discovery -------------------------------------------------------------
-
-
 @respx.mock
 def test_discover_reads_metadata():
     respx.get(WELL_KNOWN).mock(return_value=httpx.Response(200, json=_metadata()))
@@ -103,7 +100,6 @@ def test_discover_reads_metadata():
 def test_discover_falls_back_on_404():
     respx.get(WELL_KNOWN).mock(return_value=httpx.Response(404))
     meta = oauth.discover(SITE)
-    # Fallback uses Frappe's known endpoint paths and offers no DCR.
     assert meta.token_endpoint.endswith("frappe.integrations.oauth2.get_token")
     assert meta.authorization_endpoint.endswith("frappe.integrations.oauth2.authorize")
     assert meta.registration_endpoint == ""
@@ -117,14 +113,12 @@ def test_discover_raises_on_server_error():
 
 
 def test_refuses_oauth_over_plain_http_remote():
-    # Tokens are bearer credentials; never send them in cleartext to a remote.
     with pytest.raises(oauth.OAuthError, match="cleartext"):
         oauth.discover("http://erp.example.com")
 
 
 @respx.mock
 def test_allows_plain_http_on_localhost():
-    # Local development over http is fine — nothing leaves the box.
     well_known = "http://dev.localhost:8000/.well-known/oauth-authorization-server"
     respx.get(well_known).mock(
         return_value=httpx.Response(
@@ -137,9 +131,6 @@ def test_allows_plain_http_on_localhost():
     )
     meta = oauth.discover("http://dev.localhost:8000")
     assert meta.token_endpoint == "http://dev.localhost:8000/token"
-
-
-# --- login (DCR + fixed client) --------------------------------------------
 
 
 @respx.mock
@@ -158,11 +149,9 @@ def test_login_dcr_registers_and_exchanges():
     assert tokens.token_type == "bearer"
     assert tokens.expires_at > time.time()
     assert reg.called
-    # PKCE S256 was wired into the authorization request.
     assert captured["code_challenge_method"] == "S256"
     assert captured["code_challenge"]
     assert captured["response_type"] == "code"
-    # The authorization code was posted to the token endpoint.
     assert token_route.called
 
 
@@ -178,7 +167,7 @@ def test_login_uses_configured_client_without_dcr():
 
     assert client_id == "fixed-pub"
     assert tokens.access_token == "AT"
-    assert not reg.called  # no dynamic registration when a client id is given
+    assert not reg.called
 
 
 @respx.mock
@@ -205,9 +194,6 @@ def test_login_surfaces_token_error():
         _drive_login()
 
 
-# --- refresh ---------------------------------------------------------------
-
-
 @respx.mock
 def test_refresh_exchanges_refresh_token():
     respx.get(WELL_KNOWN).mock(return_value=httpx.Response(200, json=_metadata()))
@@ -225,9 +211,6 @@ def test_refresh_exchanges_refresh_token():
 def test_refresh_without_token_errors():
     with pytest.raises(oauth.OAuthError):
         oauth.refresh(SITE, "cid", "")
-
-
-# --- dynamic client registration -------------------------------------------
 
 
 @respx.mock
@@ -264,9 +247,6 @@ def test_register_client_error_surfaces():
         oauth.register_client(meta, oauth.redirect_uri())
 
 
-# --- revoke (best effort) --------------------------------------------------
-
-
 @respx.mock
 def test_revoke_posts_token_and_swallows_errors():
     respx.get(WELL_KNOWN).mock(return_value=httpx.Response(200, json=_metadata()))
@@ -279,5 +259,4 @@ def test_revoke_posts_token_and_swallows_errors():
 @respx.mock
 def test_revoke_never_raises_on_failure():
     respx.get(WELL_KNOWN).mock(return_value=httpx.Response(500))
-    # Discovery fails, but logout must still succeed locally.
     oauth.revoke(SITE, "AT")

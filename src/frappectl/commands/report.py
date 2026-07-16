@@ -44,7 +44,6 @@ def _column_keys(columns: list[Any]) -> list[str]:
             if key:
                 keys.append(key)
         elif isinstance(col, str):
-            # "Label:Type:Width" legacy format.
             keys.append(col.split(":", 1)[0])
     return keys
 
@@ -76,7 +75,6 @@ def run_report(
     rows = result.get("result", []) if isinstance(result, dict) else []
     keys = _column_keys(columns)
 
-    # Normalize list-rows into dicts keyed by column fieldname.
     norm: list[dict[str, Any]] = []
     for row in rows:
         if isinstance(row, dict):

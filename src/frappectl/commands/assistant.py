@@ -58,9 +58,7 @@ class Launch:
 
     argv: list[str]
     env: dict[str, str] = field(default_factory=dict)
-    # Files to write into the tool's config dir: (relative name, content).
     writes: list[tuple[str, str]] = field(default_factory=list)
-    # Symlinks to ensure in the config dir: (relative name, absolute target).
     symlinks: list[tuple[str, Path]] = field(default_factory=list)
 
 
@@ -69,14 +67,11 @@ class Tool:
     """A supported agent tool and how to launch it."""
 
     name: str
-    binary: str  # executable to look up on PATH (usually == name)
+    binary: str
     # Plan a launch given the system prompt and this tool's private config dir.
     # Pure: it may READ the filesystem but must not mutate it (dry-run relies on
     # this). Actual writes/symlinks are described in the returned Launch.
     build: Callable[[str, Path], Launch]
-
-
-# --- per-tool launch builders ---------------------------------------------
 
 
 def _pi_build(system_prompt: str, tool_dir: Path) -> Launch:
@@ -146,9 +141,6 @@ TOOLS: list[Tool] = [
 _TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 
 
-# --- system prompt ----------------------------------------------------------
-
-
 def _render_sites() -> str:
     """Plain-text listing of stored profiles for the system prompt.
 
@@ -181,9 +173,6 @@ def _system_prompt() -> str:
     return _SYSTEM_PROMPT_TEMPLATE.format(guide=GUIDE, sites=_render_sites())
 
 
-# --- launch plumbing --------------------------------------------------------
-
-
 def _assistant_dir(tool_name: str) -> Path:
     return config.config_dir() / "assistant" / tool_name
 
@@ -195,7 +184,6 @@ def _pick_tool(name: Optional[str]) -> Tool:
             supported = ", ".join(_TOOLS_BY_NAME)
             raise fail(f"Unsupported tool: {name}. Supported: {supported}.", 2)
         return tool
-    # Auto-pick: first supported tool that is actually installed.
     for tool in TOOLS:
         if shutil.which(tool.binary):
             return tool
@@ -274,6 +262,4 @@ def assistant(
     _materialize(launch, tool_dir)
 
     err_console.print(f"[dim]starting {chosen.name} as a Frappe assistant…[/dim]")
-    # Hand the terminal over to the agent's TUI. execvpe replaces this process,
-    # so nothing here runs afterwards.
     os.execvpe(argv[0], argv, {**os.environ, **launch.env})

@@ -87,7 +87,6 @@ def test_doctype_show_exposes_fields():
 
 
 def test_api_escape_hatch():
-    # The raw escape hatch that agents lean on for whitelisted methods.
     user = run_json("api", "method/frappe.auth.get_logged_user")
     assert user == "Administrator"
 
@@ -104,7 +103,6 @@ def test_doc_crud_lifecycle():
         assert got["name"] == name
         assert marker in (got.get("description") or "")
 
-        # Server-side filter round-trips to exactly the doc we created.
         rows = run_json("doc", "list", DOCTYPE, "-f", f"description={marker}")
         assert [r["name"] for r in rows] == [name]
 
@@ -114,7 +112,6 @@ def test_doc_crud_lifecycle():
         deleted = run("doc", "delete", DOCTYPE, name)
         assert deleted.returncode == 0, deleted.stderr
 
-    # After deletion the doc is gone: a get fails with exit code 1.
     missing = run("doc", "get", DOCTYPE, name)
     assert missing.returncode == 1
 
@@ -130,8 +127,6 @@ DOC_METHOD = "add_comment"
 
 
 def test_method_list_includes_both_kinds():
-    # The index is a tagged union: rpc entries carry a dotted `path`, doctype
-    # entries carry `doctype` + `method` — no shared identifier field.
     methods = run_json("method", "list")["methods"]
     rpc_paths = {m.get("path") for m in methods if m.get("kind") == "rpc"}
     assert PING in rpc_paths
@@ -153,8 +148,6 @@ def test_method_show_exposes_contract():
 
 
 def test_method_list_doctype_includes_inherited_standard_methods():
-    # The doctype-scoped listing is live (not the cached index) and must fold
-    # in methods inherited from the Document base class.
     methods = run_json("method", "list", "--doctype", DOCTYPE)["methods"]
     assert DOC_METHOD in {m.get("method") for m in methods}
 
@@ -168,8 +161,6 @@ def test_method_show_doctype_exposes_contract():
 
 
 def test_method_call_invokes_doctype_method():
-    # End-to-end: create a doc, invoke an inherited whitelisted method on it,
-    # and check the effect (add_comment returns the created Comment).
     marker = f"frappectl-smoke-{uuid.uuid4().hex}"
     created = run_json("doc", "create", DOCTYPE, "--set", "description=smoke")
     name = created["name"]
@@ -194,12 +185,12 @@ def test_method_call_invokes_doctype_method():
 def test_method_show_missing_reports_clean_error():
     proc = run("method", "show", f"frappe.does_not_exist_{uuid.uuid4().hex}")
     assert proc.returncode == 1
-    assert proc.stdout.strip() == ""  # no half-baked JSON on stdout
-    assert proc.stderr.strip()  # a human-readable error on stderr
+    assert proc.stdout.strip() == ""
+    assert proc.stderr.strip()
 
 
 def test_missing_doc_reports_clean_error():
     proc = run("doc", "get", DOCTYPE, f"missing-{uuid.uuid4().hex}")
     assert proc.returncode == 1
-    assert proc.stdout.strip() == ""  # no half-baked JSON on stdout
-    assert proc.stderr.strip()  # a human-readable error on stderr
+    assert proc.stdout.strip() == ""
+    assert proc.stderr.strip()

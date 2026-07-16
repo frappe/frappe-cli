@@ -33,7 +33,6 @@ class Ctx:
     ):
         self.profile = profile
         self.debug = debug
-        # --json forces JSON; otherwise JSON whenever stdout is not a TTY.
         self.json = json_mode or not sys.stdout.isatty()
         self.is_tty = sys.stdout.isatty()
 
@@ -72,9 +71,6 @@ def fail(message: str, code: int = 1) -> "typer.Exit":
             "[dim]tip:[/dim] re-run with --debug to see the full server traceback."
         )
     return typer.Exit(code)
-
-
-# --- table rendering -------------------------------------------------------
 
 
 def _scalar(value: Any) -> str:

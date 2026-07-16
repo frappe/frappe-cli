@@ -40,7 +40,6 @@ def test_download_basenames_server_filename(monkeypatch, tmp_path):
     result = runner.invoke(app, ["file", "download", "evil"])
     assert result.exit_code == 0, result.stderr
 
-    # Written inside cwd under the sanitized basename, nowhere above it.
     assert (tmp_path / "pwned.bin").read_bytes() == b"payload"
     assert not (tmp_path.parent / "pwned.bin").exists()
     assert not os.path.exists(tmp_path / ".." / ".." / ".." / "pwned.bin")

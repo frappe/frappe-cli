@@ -100,7 +100,7 @@ def list_docs(
         except FrappeError:
             field_list = ["name"]
     elif field_list == ["*"]:
-        field_list = None  # let the server return everything
+        field_list = None
 
     try:
         rows = _fetch(client, doctype, field_list, flt, order_by, limit, all_, c)

@@ -20,7 +20,6 @@ Homepage = "https://github.com/frappe/frappectl"
 
 [project.scripts]
 frappectl = "frappectl.cli:main"
-# `fr` is the short alias for interactive use; `frappectl` is the canonical name.
 fr = "frappectl.cli:main"
 
 [project.optional-dependencies]

@@ -35,7 +35,7 @@ _LEGACY_KEYRING_SERVICE = "frappe-cli"
 
 # Refresh an OAuth access token a little before it actually expires, so a
 # request never races the clock and 401s on a token that lapsed mid-flight.
-OAUTH_EXPIRY_MARGIN = 60.0  # seconds
+OAUTH_EXPIRY_MARGIN = 60.0
 
 
 class ConfigError(Exception):
@@ -56,15 +56,9 @@ class Credentials:
     site: str
     api_key: str
     api_secret: str
-    # Where these came from, for error messages: "env" or a profile name.
     source: str
-    # Human-provided note describing the site (assistant mode uses this to
-    # pick the right site). Empty for env-sourced credentials.
     description: str = ""
-    # When true, the client refuses any request that isn't a safe (read-only)
-    # HTTP method, so this profile can never mutate the site.
     read_only: bool = False
-    # "token" (API key/secret) or "bearer" (OAuth access token).
     token_type: str = "token"
     access_token: str = ""
     refresh_token: str = ""
@@ -109,14 +103,11 @@ def _save(data: dict[str, Any]) -> None:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2) + "\n")
-    # Config holds only site URLs, but keep it user-only regardless.
+    # Keep the file private even though credentials are stored separately.
     try:
         path.chmod(0o600)
     except OSError:
         pass
-
-
-# --- keyring helpers -------------------------------------------------------
 
 
 def _keyring() -> ModuleType:
@@ -181,9 +172,6 @@ def _delete_legacy_secret(profile: str) -> None:
         kr.delete_password(_LEGACY_KEYRING_SERVICE, profile)
     except Exception:
         pass
-
-
-# --- public profile API ----------------------------------------------------
 
 
 def list_profiles() -> tuple[dict[str, dict[str, Any]], str | None]:
@@ -376,7 +364,6 @@ def resolve(profile: str | None = None, interactive: bool = True) -> Credentials
     """
 
     env_site = os.environ.get("FRAPPE_SITE")
-    # Env wins, but only when a profile wasn't explicitly requested.
     if profile is None and env_site:
         key = os.environ.get("FRAPPE_API_KEY")
         secret = os.environ.get("FRAPPE_API_SECRET")
@@ -403,7 +390,6 @@ def resolve(profile: str | None = None, interactive: bool = True) -> Credentials
             "FRAPPE_API_KEY and FRAPPE_API_SECRET. The configured default "
             "profile is only auto-selected interactively or when it is the only one."
         )
-    # With exactly one profile, fall back to it even when no default is set.
     if profile is None and not interactive and len(profiles) == 1:
         default = next(iter(profiles))
     name = profile or default
@@ -462,8 +448,7 @@ def _resolve_oauth(name: str, entry: dict[str, Any]) -> Credentials:
             f"Run 'frappectl auth login {site}' again for this site."
         )
 
-    # Proactive refresh: if the token has (nearly) expired and we can refresh,
-    # do it now rather than let the next request 401.
+    # Refresh before expiry so the next request cannot race the token lifetime.
     if refresh_token and expires_at and expires_at - OAUTH_EXPIRY_MARGIN <= time.time():
         try:
             tokens = oauth.refresh(site, client_id, refresh_token)

@@ -19,9 +19,7 @@ runner = CliRunner()
         (["-s", "raven", "doc", "list", "X"], ["--site", "raven", "doc", "list", "X"]),
         (["doc", "list", "X", "-s", "raven"], ["--site", "raven", "doc", "list", "X"]),
         (["--site=acme", "doc", "list", "X"], ["--site", "acme", "doc", "list", "X"]),
-        # tokens after `--` are left alone
         (["api", "p", "--", "--json"], ["api", "p", "--", "--json"]),
-        # substrings are not hoisted
         (
             ["doc", "list", "X", "--filters-json", "[]"],
             ["doc", "list", "X", "--filters-json", "[]"],
@@ -75,17 +73,14 @@ def test_doc_list_meta_driven_fields(env):
     )
     result = runner.invoke(app, ["--json", "doc", "list", "ToDo"])
     assert result.exit_code == 0
-    # meta-driven fields requested
     assert "fields" in list_route.calls.last.request.url.params
     fields = list_route.calls.last.request.url.params["fields"]
     assert "description" in fields and "status" in fields
-    # sorts by creation desc by default
     assert list_route.calls.last.request.url.params["order_by"] == "creation desc"
 
 
 @respx.mock
 def test_delete_runs_without_confirmation(env):
-    # No confirmation gate: delete hits the server and reports success.
     route = respx.delete(f"{BASE}/api/v2/document/ToDo/X/").mock(
         return_value=httpx.Response(200, json={"data": {}})
     )
@@ -157,7 +152,6 @@ def test_conflict_message(env):
 
 
 def test_guide_runs_without_auth():
-    # No env / profile configured: guide must still work (no client, no network).
     result = runner.invoke(app, ["guide"])
     assert result.exit_code == 0
     assert "frappectl doctype show" in result.stdout
@@ -167,15 +161,12 @@ def test_guide_runs_without_auth():
 def test_guide_tells_agents_not_to_touch_credentials():
     result = runner.invoke(app, ["guide"])
     assert result.exit_code == 0
-    # Authentication is a human concern; the guide only states the boundary.
     assert "Do not run auth commands" in result.stdout
     assert "modify FRAPPE_*" in result.stdout
     assert "auth login" not in result.stdout
 
 
 def test_login_refuses_non_interactive():
-    # No TTY (the test runner has none): login must refuse rather than read a
-    # secret from the pipe, and it must never reach the keyring or network.
     result = runner.invoke(
         app, ["auth", "login", "https://erp.example.com"], input="key\nsecret\n"
     )
@@ -251,7 +242,6 @@ def test_configure_unknown_profile_errors(fake_config):
 
 
 def test_configure_no_flags_non_interactive_errors(fake_config):
-    # No TTY in the test runner and no flags: nothing to change, must refuse.
     fake_config.add_profile("acme", "http://acme.test", "k", "s")
     result = runner.invoke(app, ["auth", "configure", "acme"])
     assert result.exit_code == 2
@@ -293,8 +283,6 @@ def test_error_includes_hint(env):
 
 @respx.mock
 def test_server_exception_nudges_debug(env):
-    # A server error carrying a full traceback nudges the caller to re-run with
-    # --debug, without dumping the traceback itself.
     respx.get(f"{BASE}/api/v2/method/x.y").mock(
         return_value=httpx.Response(
             500,
@@ -309,7 +297,6 @@ def test_server_exception_nudges_debug(env):
 
 @respx.mock
 def test_no_debug_nudge_under_debug(env):
-    # With --debug already on, the traceback is printed and there is no nudge.
     respx.get(f"{BASE}/api/v2/method/x.y").mock(
         return_value=httpx.Response(
             500,
@@ -326,7 +313,6 @@ def test_no_debug_nudge_under_debug(env):
 
 @respx.mock
 def test_no_debug_nudge_for_plain_error(env):
-    # An error without a server traceback must not suggest --debug.
     respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
         return_value=httpx.Response(
             404,

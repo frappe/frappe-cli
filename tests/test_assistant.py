@@ -22,7 +22,6 @@ def _isolate(monkeypatch, tmp_path):
 
 
 def _argv(result) -> list[str]:
-    # In dry-run the command is emitted as a JSON array on a `cmd: ` line.
     for ln in result.stdout.splitlines():
         if ln.startswith("cmd: "):
             return json.loads(ln[len("cmd: ") :])
@@ -56,7 +55,6 @@ def test_pi_gets_flags():
 
 
 def test_codex_uses_agents_md_and_symlinks(tmp_path):
-    # Fake a real codex home with auth/config to be symlinked.
     real = tmp_path / "realcodex"
     real.mkdir()
     (real / "auth.json").write_text("{}")
@@ -82,7 +80,6 @@ def test_claude_gets_append_flag():
     argv = _argv(result)
     assert argv[0] == "claude"
     assert "--append-system-prompt" in argv
-    # claude's own default system prompt is suppressed with an empty one.
     assert argv[argv.index("--system-prompt") + 1] == ""
 
 
@@ -108,7 +105,6 @@ def test_missing_binary_exits_127(monkeypatch):
 
 def test_dry_run_writes_nothing(tmp_path):
     runner.invoke(app, ["assistant", "codex", "--dry-run"])
-    # The frappe config dir must not have been created by a dry-run.
     assert not (tmp_path / "config" / "frappe").exists()
 
 
