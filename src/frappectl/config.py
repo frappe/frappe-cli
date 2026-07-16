@@ -494,6 +494,11 @@ def update_oauth_tokens(name: str, tokens: oauth.Tokens) -> None:
     )
 
 
+def store_oauth_credential(name: str, credential: OAuthCredential) -> None:
+    """Persist an OAuth provider's current credential."""
+    _repository().store_credential(name, credential)
+
+
 def oauth_client_id(name: str) -> str | None:
     """The client_id stored for an OAuth profile, if any (for reuse on login)."""
     return _read_oauth_blob(name).get("client_id") or None

@@ -15,6 +15,7 @@ from typing import Any, BinaryIO, cast
 
 import httpx
 
+from .credentials import ApiKeyProvider, CredentialProvider
 from .errors import FrappeError, extract_message
 from .site import SiteURL, endpoint_path
 
@@ -55,6 +56,28 @@ def _auth_header(token_type: str, token: str) -> str:
     return f"token {token}"
 
 
+class _LegacyBearerProvider:
+    """Adapter for the pre-provider ``on_unauthorized`` constructor API."""
+
+    def __init__(
+        self, token: str, on_unauthorized: Callable[[], str | None] | None
+    ) -> None:
+        self._token = token
+        self._on_unauthorized = on_unauthorized
+
+    def authorization_header(self) -> str:
+        return _auth_header("bearer", self._token)
+
+    def refresh(self) -> bool:
+        if self._on_unauthorized is None:
+            return False
+        token = self._on_unauthorized()
+        if token is None:
+            return False
+        self._token = token
+        return True
+
+
 class FrappeClient:
     def __init__(
         self,
@@ -66,14 +89,19 @@ class FrappeClient:
         read_only: bool = False,
         token_type: str = "token",
         on_unauthorized: Callable[[], str | None] | None = None,
+        credential_provider: CredentialProvider | None = None,
     ):
         site_url = SiteURL.parse(site)
         self.site = str(site_url)
         self.debug = debug
         self.read_only = read_only
-        self._token = token
-        self._token_type = token_type
-        self._on_unauthorized = on_unauthorized
+        if credential_provider is None:
+            if token_type == "bearer":
+                credential_provider = _LegacyBearerProvider(token, on_unauthorized)
+            else:
+                key, _, secret = token.partition(":")
+                credential_provider = ApiKeyProvider(key, secret)
+        self._credential_provider = credential_provider
 
         # Refuse to put the credential on the wire in cleartext. Plain HTTP is
         # only allowed for local development (localhost / *.localhost / loopback).
@@ -89,7 +117,7 @@ class FrappeClient:
         self._http = httpx.Client(
             base_url=self.site,
             headers={
-                "Authorization": _auth_header(token_type, token),
+                "Authorization": credential_provider.authorization_header(),
                 "Accept": "application/json",
                 "User-Agent": "frappectl",
             },
@@ -199,13 +227,11 @@ class FrappeClient:
         the request. A no-op (returns False) when there is no callback or the
         refresh failed — the original 401 then surfaces unchanged.
         """
-        if not self._on_unauthorized:
+        if not self._credential_provider.refresh():
             return False
-        new_token = self._on_unauthorized()
-        if not new_token:
-            return False
-        self._token = new_token
-        self._http.headers["Authorization"] = _auth_header(self._token_type, new_token)
+        self._http.headers["Authorization"] = (
+            self._credential_provider.authorization_header()
+        )
         return True
 
     def _send(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
