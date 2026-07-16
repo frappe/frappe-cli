@@ -183,18 +183,26 @@ class FrappeClient:
         """
         if not self.debug or not isinstance(body, dict):
             return
-        errors = body.get("errors")
-        if not isinstance(errors, list):
-            return
-        for err in errors:
-            if not isinstance(err, dict):
-                continue
-            trace = err.get("exception") or err.get("exc")
-            if not isinstance(trace, str) or not trace.strip():
-                continue
+        for trace in _server_tracebacks(body):
             self._dbg("  [server traceback]")
             for line in _strip_control(trace).splitlines():
                 self._dbg(f"    {line}")
+
+    def _server_error(
+        self, message: str, status_code: int | None, body: Any
+    ) -> FrappeError:
+        """Build a :class:`FrappeError`, emitting the server traceback first.
+
+        Under ``--debug`` the full traceback is printed to stderr here; when it
+        is off but the body carried one, the error is flagged so the print site
+        can nudge the caller to re-run with ``--debug``.
+        """
+        self._emit_server_error(body)
+        return FrappeError(
+            message,
+            status_code,
+            has_server_exception=not self.debug and bool(_server_tracebacks(body)),
+        )
 
     # --- core request ------------------------------------------------------
 
@@ -269,19 +277,21 @@ class FrappeClient:
                 body = resp.text
 
         if resp.status_code >= 400:
-            self._emit_server_error(body)
             if resp.status_code == 401:
-                raise FrappeError(
+                raise self._server_error(
                     "Authentication failed (401). Check the API key/secret for "
                     "this site.",
                     401,
+                    body,
                 )
             if resp.status_code == 403:
                 msg = extract_message(body, 403)
-                raise FrappeError(
-                    msg if msg != "HTTP 403" else "Permission denied (403).", 403
+                raise self._server_error(
+                    msg if msg != "HTTP 403" else "Permission denied (403).", 403, body
                 )
-            raise FrappeError(extract_message(body, resp.status_code), resp.status_code)
+            raise self._server_error(
+                extract_message(body, resp.status_code), resp.status_code, body
+            )
 
         self._emit_server_debug(body)
 
@@ -306,9 +316,10 @@ class FrappeClient:
                 if resp.status_code >= 400:
                     resp.read()
                     body = _safe_json(resp)
-                    self._emit_server_error(body)
-                    raise FrappeError(
-                        extract_message(body, resp.status_code), resp.status_code
+                    raise self._server_error(
+                        extract_message(body, resp.status_code),
+                        resp.status_code,
+                        body,
                     )
                 total = 0
                 for chunk in resp.iter_bytes():
@@ -371,8 +382,9 @@ class FrappeClient:
 
         if resp.status_code >= 400:
             body = _safe_json(resp)
-            self._emit_server_error(body)
-            raise FrappeError(extract_message(body, resp.status_code), resp.status_code)
+            raise self._server_error(
+                extract_message(body, resp.status_code), resp.status_code, body
+            )
 
         body = resp.json()
         self._emit_server_debug(body)
@@ -599,6 +611,27 @@ class FrappeClient:
                 files={"file": (filename, fileobj)},
             ),
         )
+
+
+def _server_tracebacks(body: Any) -> list[str]:
+    """The full server tracebacks carried by a v2 error body, if any.
+
+    A v2 error body is ``{"errors": [{"type", "message", "exception", ...}]}``
+    where ``exception`` (or ``exc``) is the full server traceback.
+    """
+    if not isinstance(body, dict):
+        return []
+    errors = body.get("errors")
+    if not isinstance(errors, list):
+        return []
+    traces: list[str] = []
+    for err in errors:
+        if not isinstance(err, dict):
+            continue
+        trace = err.get("exception") or err.get("exc")
+        if isinstance(trace, str) and trace.strip():
+            traces.append(trace)
+    return traces
 
 
 def _strip_control(text: str) -> str:

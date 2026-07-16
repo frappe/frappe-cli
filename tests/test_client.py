@@ -228,10 +228,43 @@ def test_no_server_traceback_without_debug(capsys):
             json={"errors": [{"exception": "Traceback...\nKeyError: 'z'"}]},
         )
     )
-    with pytest.raises(FrappeError):
+    with pytest.raises(FrappeError) as excinfo:
         client().call_method("x.y", http_method="GET")
     err = capsys.readouterr().err
     assert "traceback" not in err.lower()
+    # The suppressed traceback is flagged so the print site can nudge --debug.
+    assert excinfo.value.has_server_exception is True
+
+
+@respx.mock
+def test_server_exception_not_flagged_under_debug():
+    # Under --debug the traceback is already printed, so there is nothing to
+    # nudge toward — the flag stays off.
+    respx.get(f"{BASE}/api/v2/method/x.y").mock(
+        return_value=httpx.Response(
+            500,
+            json={"errors": [{"exception": "Traceback...\nKeyError: 'z'"}]},
+        )
+    )
+    with pytest.raises(FrappeError) as excinfo:
+        FrappeClient(BASE, "k:s", debug=True).call_method("x.y", http_method="GET")
+    assert excinfo.value.has_server_exception is False
+
+
+@respx.mock
+def test_error_without_traceback_not_flagged():
+    # A plain message error (no server traceback) must not trigger the nudge.
+    respx.get(f"{BASE}/api/v2/document/ToDo/X/").mock(
+        return_value=httpx.Response(
+            404,
+            json={
+                "errors": [{"type": "DoesNotExistError", "message": "ToDo X not found"}]
+            },
+        )
+    )
+    with pytest.raises(FrappeError) as excinfo:
+        client().get_document("ToDo", "X")
+    assert excinfo.value.has_server_exception is False
 
 
 @respx.mock

@@ -53,15 +53,24 @@ def fail(message: str, code: int = 1) -> "typer.Exit":
     """Print an error to stderr and return an Exit to raise.
 
     When the message matches a known failure shape, append a one-line tip
-    pointing at the command that can resolve it. Hints go to stderr, so they
-    never pollute JSON on stdout.
+    pointing at the command that can resolve it. And when the error being
+    handled carried a full server traceback that was suppressed (``--debug``
+    off), nudge the caller toward it. Hints go to stderr, so they never pollute
+    JSON on stdout.
     """
-    from .errors import error_hint
+    from .errors import FrappeError, error_hint
 
     err_console.print(f"[red]error:[/red] {message}")
     hint = error_hint(message)
     if hint:
         err_console.print(f"[dim]tip:[/dim] {hint}")
+    # The in-flight exception (if fail() is called from an ``except`` block)
+    # tells us whether the server sent a traceback we chose not to print.
+    exc = sys.exc_info()[1]
+    if isinstance(exc, FrappeError) and exc.has_server_exception:
+        err_console.print(
+            "[dim]tip:[/dim] re-run with --debug to see the full server traceback."
+        )
     return typer.Exit(code)
 
 
