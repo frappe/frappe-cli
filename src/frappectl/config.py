@@ -25,6 +25,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, cast
 
+from .site import SiteURL
+
 if TYPE_CHECKING:
     from . import oauth
 
@@ -347,10 +349,8 @@ def _env_truthy(value: str | None) -> bool:
 
 
 def _normalize_site(site: str) -> str:
-    site = site.strip().rstrip("/")
-    if not site.startswith(("http://", "https://")):
-        site = "https://" + site
-    return site
+    """Compatibility shim for callers that have not migrated to ``SiteURL``."""
+    return str(SiteURL.parse(site))
 
 
 def resolve(profile: str | None = None, interactive: bool = True) -> Credentials:

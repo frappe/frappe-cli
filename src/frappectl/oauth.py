@@ -38,7 +38,7 @@ import httpx
 from authlib.common.errors import AuthlibBaseError
 from authlib.integrations.httpx_client import OAuth2Client
 
-from .client import _is_local_host
+from .site import SiteURL
 
 # Fixed loopback redirect. The port is fixed (not ephemeral) because Frappe
 # validates the redirect URI exactly; an ephemeral port would never match the
@@ -78,8 +78,9 @@ def _require_secure_transport(site: str) -> None:
     act as the user. Plain HTTP is tolerated only for local development
     (localhost / ``*.localhost`` / loopback), mirroring the API-key client.
     """
-    parsed = httpx.URL(site)
-    if parsed.scheme == "http" and not _is_local_host(parsed.host):
+    try:
+        SiteURL.parse(site).require_secure_credentials()
+    except ValueError:
         raise OAuthError(
             f"Refusing to run OAuth against {site} over plain HTTP: the access "
             "and refresh tokens would be sent in cleartext. Use an https:// URL "

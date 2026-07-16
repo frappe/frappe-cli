@@ -12,11 +12,11 @@ import sys
 import time
 from collections.abc import Callable
 from typing import Any, BinaryIO, cast
-from urllib.parse import quote
 
 import httpx
 
 from .errors import FrappeError, extract_message
+from .site import SiteURL, endpoint_path
 
 Document = dict[str, Any]
 Filters = list[Any] | dict[str, Any]
@@ -31,8 +31,6 @@ DISCOVERY_FALLBACK_BACKOFF = 2.0
 DISCOVERY_MAX_RETRY_WAIT = 30.0
 
 # Hosts for which plain HTTP is tolerated: the API secret never leaves the box.
-_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
-
 _DEBUG_BODY_LIMIT = 2000
 
 # HTTP methods that never mutate server state. A read-only profile is allowed
@@ -41,8 +39,9 @@ _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
 def _is_local_host(host: str) -> bool:
-    host = (host or "").lower()
-    return host in _LOCAL_HOSTS or host.endswith(".localhost")
+    """Compatibility shim for callers that have not migrated to ``SiteURL``."""
+    authority = f"[{host}]" if ":" in host and not host.startswith("[") else host
+    return SiteURL.parse(f"http://{authority}").is_local
 
 
 def _auth_header(token_type: str, token: str) -> str:
@@ -68,7 +67,8 @@ class FrappeClient:
         token_type: str = "token",
         on_unauthorized: Callable[[], str | None] | None = None,
     ):
-        self.site = site.rstrip("/")
+        site_url = SiteURL.parse(site)
+        self.site = str(site_url)
         self.debug = debug
         self.read_only = read_only
         self._token = token
@@ -77,8 +77,9 @@ class FrappeClient:
 
         # Refuse to put the credential on the wire in cleartext. Plain HTTP is
         # only allowed for local development (localhost / *.localhost / loopback).
-        parsed = httpx.URL(self.site)
-        if parsed.scheme == "http" and not _is_local_host(parsed.host):
+        try:
+            site_url.require_secure_credentials()
+        except ValueError:
             raise FrappeError(
                 f"Refusing to talk to {self.site} over plain HTTP: the "
                 "credential would be sent in cleartext. Use an https:// URL "
@@ -357,7 +358,9 @@ class FrappeClient:
 
         try:
             resp = self._send(
-                "GET", f"/api/v2/document/{doctype}", params=_clean_params(params)
+                "GET",
+                endpoint_path("api", "v2", "document", doctype),
+                params=_clean_params(params),
             )
         except httpx.HTTPError as e:
             raise FrappeError(f"Could not reach {self.site}: {e}") from e
@@ -375,32 +378,56 @@ class FrappeClient:
 
     def get_document(self, doctype: str, name: str) -> Document:
         return cast(
-            Document, self.request("GET", f"/api/v2/document/{doctype}/{name}/")
+            Document,
+            self.request(
+                "GET",
+                endpoint_path(
+                    "api", "v2", "document", doctype, name, trailing_slash=True
+                ),
+            ),
         )
 
     def create_document(self, doctype: str, data: Document) -> Document:
         return cast(
             Document,
-            self.request("POST", f"/api/v2/document/{doctype}", json_body=data),
+            self.request(
+                "POST", endpoint_path("api", "v2", "document", doctype), json_body=data
+            ),
         )
 
     def update_document(self, doctype: str, name: str, data: Document) -> Document:
         return cast(
             Document,
             self.request(
-                "PATCH", f"/api/v2/document/{doctype}/{name}/", json_body=data
+                "PATCH",
+                endpoint_path(
+                    "api", "v2", "document", doctype, name, trailing_slash=True
+                ),
+                json_body=data,
             ),
         )
 
     def delete_document(self, doctype: str, name: str) -> Any:
-        return self.request("DELETE", f"/api/v2/document/{doctype}/{name}/")
+        return self.request(
+            "DELETE",
+            endpoint_path("api", "v2", "document", doctype, name, trailing_slash=True),
+        )
 
     def run_doc_method(
         self, doctype: str, name: str, method: str, params: dict[str, Any] | None = None
     ) -> Any:
         return self.request(
             "POST",
-            f"/api/v2/document/{doctype}/{name}/method/{method}/",
+            endpoint_path(
+                "api",
+                "v2",
+                "document",
+                doctype,
+                name,
+                "method",
+                method,
+                trailing_slash=True,
+            ),
             json_body=params or {},
         )
 
@@ -508,14 +535,15 @@ class FrappeClient:
         is not backed by the global discovery cache.
         """
         return self._discovery_get(
-            f"/api/v2/discovery/doctype/{quote(doctype, safe='')}"
+            endpoint_path("api", "v2", "discovery", "doctype", doctype)
         )
 
     def discovery_doctype_show(self, doctype: str, method: str) -> Any:
         """Detail document for a single doctype method."""
         return self._discovery_get(
-            f"/api/v2/discovery/doctype/{quote(doctype, safe='')}"
-            f"/method/{quote(method, safe='')}"
+            endpoint_path(
+                "api", "v2", "discovery", "doctype", doctype, "method", method
+            )
         )
 
     def call_document_method(
@@ -534,11 +562,7 @@ class FrappeClient:
         components are URL-encoded so names containing ``/``, spaces or ``@``
         are handled correctly.
         """
-        path = (
-            f"/api/v2/document/{quote(doctype, safe='')}"
-            f"/{quote(name, safe='')}"
-            f"/method/{quote(method, safe='')}"
-        )
+        path = endpoint_path("api", "v2", "document", doctype, name, "method", method)
         verb = http_method.upper()
         if verb == "GET":
             return self.request("GET", path, params=params)
