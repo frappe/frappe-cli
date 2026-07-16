@@ -2,8 +2,59 @@ import time
 
 import pytest
 
-from frappectl.config import ConfigError
+from frappectl.config import (
+    ApiKeyCredential,
+    ConfigError,
+    Profile,
+    ProfileRepository,
+)
 from frappectl.oauth import Tokens
+from frappectl.site import SiteURL
+
+
+class MemoryConfigStore:
+    def __init__(self, data=None):
+        self.data = data or {"default": None, "profiles": {}}
+        self.fail_save = False
+
+    def load(self):
+        return self.data
+
+    def save(self, data):
+        if self.fail_save:
+            raise OSError("disk full")
+        self.data = data
+
+
+class MemorySecretStore:
+    def __init__(self):
+        self.data = {}
+
+    def get(self, profile):
+        return self.data.get(profile)
+
+    def set(self, profile, secret):
+        self.data[profile] = secret
+
+    def delete(self, profile):
+        self.data.pop(profile, None)
+
+
+def test_repository_restores_secret_when_config_write_fails():
+    configs = MemoryConfigStore()
+    secrets = MemorySecretStore()
+    secrets.data["acme"] = "old:secret"
+    repo = ProfileRepository(configs, secrets)
+    configs.fail_save = True
+
+    with pytest.raises(ConfigError) as exc:
+        repo.add(
+            Profile("acme", SiteURL.parse("https://acme.test")),
+            ApiKeyCredential("new", "secret"),
+        )
+
+    assert secrets.data["acme"] == "old:secret"
+    assert isinstance(exc.value.__cause__, OSError)
 
 
 def test_env_wins(fake_config, monkeypatch):

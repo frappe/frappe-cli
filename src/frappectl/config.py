@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -178,6 +179,165 @@ class KeyringSecretStore:
             pass
 
 
+@dataclass(frozen=True)
+class ProfileCollection:
+    profiles: dict[str, Profile]
+    default: str | None
+
+
+class ProfileRepository:
+    """Own profile metadata and its matching keyring secret as one unit."""
+
+    def __init__(self, config_store: ConfigStore, secret_store: SecretStore):
+        self.config_store = config_store
+        self.secret_store = secret_store
+
+    def list(self) -> ProfileCollection:
+        data = self.config_store.load()
+        profiles = {
+            name: _profile_from_entry(name, entry)
+            for name, entry in cast(
+                "dict[str, dict[str, Any]]", data["profiles"]
+            ).items()
+        }
+        return ProfileCollection(profiles, cast("str | None", data["default"]))
+
+    def add(
+        self,
+        profile: Profile,
+        credential: StoredCredential,
+        *,
+        make_default: bool = True,
+    ) -> None:
+        data = self.config_store.load()
+        previous_secret = self.secret_store.get(profile.name)
+        self.secret_store.set(profile.name, credential.serialize())
+        data["profiles"][profile.name] = _profile_entry(profile)
+        if make_default or data["default"] is None:
+            data["default"] = profile.name
+        try:
+            self.config_store.save(data)
+        except Exception as e:
+            self._restore_secret(profile.name, previous_secret)
+            raise ConfigError(
+                f"Could not save profile '{profile.name}'; its credential was restored."
+            ) from e
+
+    def rename(self, old_name: str, new_name: str) -> None:
+        data = self.config_store.load()
+        profiles = cast("dict[str, dict[str, Any]]", data["profiles"])
+        if old_name not in profiles:
+            raise ConfigError(f"No such profile: {old_name}")
+        if new_name == old_name:
+            return
+        if not new_name:
+            raise ConfigError("New profile name must not be empty.")
+        if new_name in profiles:
+            raise ConfigError(f"A profile named '{new_name}' already exists.")
+
+        secret = self.secret_store.get(old_name)
+        previous_new_secret = self.secret_store.get(new_name)
+        if secret is not None:
+            self.secret_store.set(new_name, secret)
+        profiles[new_name] = profiles.pop(old_name)
+        if data["default"] == old_name:
+            data["default"] = new_name
+        try:
+            self.config_store.save(data)
+        except Exception as e:
+            self._restore_secret(new_name, previous_new_secret)
+            raise ConfigError(
+                f"Could not rename profile '{old_name}'; its credential was restored."
+            ) from e
+        if secret is not None:
+            try:
+                self.secret_store.delete(old_name)
+            except Exception as e:
+                profiles[old_name] = profiles.pop(new_name)
+                if data["default"] == new_name:
+                    data["default"] = old_name
+                self.config_store.save(data)
+                self._restore_secret(new_name, previous_new_secret)
+                raise ConfigError(
+                    f"Could not rename profile '{old_name}'; config was restored."
+                ) from e
+
+    def remove(self, name: str) -> None:
+        data = self.config_store.load()
+        original = deepcopy(data)
+        profiles = cast("dict[str, dict[str, Any]]", data["profiles"])
+        if name not in profiles:
+            raise ConfigError(f"No such profile: {name}")
+        del profiles[name]
+        if data["default"] == name:
+            data["default"] = next(iter(profiles), None)
+        self.config_store.save(data)
+        try:
+            self.secret_store.delete(name)
+        except Exception as e:
+            try:
+                self.config_store.save(original)
+            except Exception:
+                pass
+            raise ConfigError(
+                f"Could not remove profile '{name}'; config was restored."
+            ) from e
+
+    def set_default(self, name: str) -> None:
+        data = self.config_store.load()
+        if name not in data["profiles"]:
+            raise ConfigError(f"No such profile: {name}")
+        data["default"] = name
+        self.config_store.save(data)
+
+    def update(self, profile: Profile) -> None:
+        data = self.config_store.load()
+        if profile.name not in data["profiles"]:
+            raise ConfigError(f"No such profile: {profile.name}")
+        data["profiles"][profile.name] = _profile_entry(profile)
+        self.config_store.save(data)
+
+    def credential(self, name: str) -> str | None:
+        return self.secret_store.get(name)
+
+    def store_credential(self, name: str, credential: StoredCredential) -> None:
+        self.secret_store.set(name, credential.serialize())
+
+    def _restore_secret(self, name: str, secret: str | None) -> None:
+        try:
+            if secret is None:
+                self.secret_store.delete(name)
+            else:
+                self.secret_store.set(name, secret)
+        except Exception:
+            pass
+
+
+def _profile_from_entry(name: str, entry: dict[str, Any]) -> Profile:
+    return Profile(
+        name=name,
+        site=SiteURL.parse(str(entry["site"])),
+        description=str(entry.get("description", "")),
+        read_only=bool(entry.get("read_only", False)),
+        auth=AuthKind.OAUTH if entry.get("auth") == "oauth" else AuthKind.API_KEY,
+    )
+
+
+def _profile_entry(profile: Profile) -> dict[str, Any]:
+    entry: dict[str, Any] = {"site": str(profile.site)}
+    if profile.auth is AuthKind.OAUTH:
+        entry["auth"] = "oauth"
+    if profile.description:
+        entry["description"] = profile.description
+    if profile.read_only:
+        entry["read_only"] = True
+    return entry
+
+
+def _repository() -> ProfileRepository:
+    return ProfileRepository(JsonConfigStore(), KeyringSecretStore())
+
+
 @dataclass
 class Credentials:
     """A resolved site + token, ready to build a client from.
@@ -259,8 +419,14 @@ def _delete_legacy_secret(profile: str) -> None:
 
 
 def list_profiles() -> tuple[dict[str, dict[str, Any]], str | None]:
-    data = _load()
-    return data["profiles"], data["default"]
+    collection = _repository().list()
+    return (
+        {
+            name: _profile_entry(profile)
+            for name, profile in collection.profiles.items()
+        },
+        collection.default,
+    )
 
 
 def add_profile(
@@ -272,17 +438,11 @@ def add_profile(
     description: str = "",
     read_only: bool = False,
 ) -> None:
-    data = _load()
-    _store_secret(name, f"{api_key}:{api_secret}")
-    entry: dict[str, Any] = {"site": site}
-    if description:
-        entry["description"] = description
-    if read_only:
-        entry["read_only"] = True
-    data["profiles"][name] = entry
-    if make_default or data["default"] is None:
-        data["default"] = name
-    _save(data)
+    _repository().add(
+        Profile(name, SiteURL.parse(site), description, read_only),
+        ApiKeyCredential(api_key, api_secret),
+        make_default=make_default,
+    )
 
 
 def add_oauth_profile(
@@ -301,17 +461,16 @@ def add_oauth_profile(
     the same service/name an API-key profile would use. ``client_id`` is
     persisted so later logins reuse the same registered client.
     """
-    data = _load()
-    _store_secret(name, _oauth_blob(tokens, client_id))
-    entry: dict[str, Any] = {"site": site, "auth": "oauth"}
-    if description:
-        entry["description"] = description
-    if read_only:
-        entry["read_only"] = True
-    data["profiles"][name] = entry
-    if make_default or data["default"] is None:
-        data["default"] = name
-    _save(data)
+    _repository().add(
+        Profile(name, SiteURL.parse(site), description, read_only, AuthKind.OAUTH),
+        OAuthCredential(
+            tokens.access_token,
+            tokens.refresh_token,
+            tokens.expires_at,
+            client_id,
+        ),
+        make_default=make_default,
+    )
 
 
 def update_oauth_tokens(name: str, tokens: oauth.Tokens) -> None:
@@ -324,7 +483,15 @@ def update_oauth_tokens(name: str, tokens: oauth.Tokens) -> None:
     client_id = existing.get("client_id", "")
     if not tokens.refresh_token:
         tokens = tokens.with_refresh_token(existing.get("refresh_token", ""))
-    _store_secret(name, _oauth_blob(tokens, client_id))
+    _repository().store_credential(
+        name,
+        OAuthCredential(
+            tokens.access_token,
+            tokens.refresh_token,
+            tokens.expires_at,
+            client_id,
+        ),
+    )
 
 
 def oauth_client_id(name: str) -> str | None:
@@ -350,7 +517,7 @@ def _oauth_blob(tokens: oauth.Tokens, client_id: str) -> str:
 
 
 def _read_oauth_blob(name: str) -> dict[str, Any]:
-    raw = _read_secret(name)
+    raw = _repository().credential(name)
     if not raw:
         return {}
     try:
@@ -362,68 +529,39 @@ def _read_oauth_blob(name: str) -> dict[str, Any]:
 
 def rename_profile(name: str, new_name: str) -> None:
     """Rename a profile, moving its secret and default pointer with it."""
-    data = _load()
-    if name not in data["profiles"]:
-        raise ConfigError(f"No such profile: {name}")
-    if new_name == name:
-        return
-    if not new_name:
-        raise ConfigError("New profile name must not be empty.")
-    if new_name in data["profiles"]:
-        raise ConfigError(f"A profile named '{new_name}' already exists.")
-
-    # Move the secret first so a keyring failure can't orphan the config entry.
-    token = _read_secret(name)
-    if token:
-        _store_secret(new_name, token)
-        _delete_secret(name)
-    data["profiles"][new_name] = data["profiles"].pop(name)
-    if data["default"] == name:
-        data["default"] = new_name
-    _save(data)
+    _repository().rename(name, new_name)
 
 
 def set_description(name: str, description: str) -> None:
     """Set (or clear, with an empty string) a profile's description."""
-    data = _load()
-    if name not in data["profiles"]:
-        raise ConfigError(f"No such profile: {name}")
-    if description:
-        data["profiles"][name]["description"] = description
-    else:
-        data["profiles"][name].pop("description", None)
-    _save(data)
+    collection = _repository().list()
+    try:
+        profile = collection.profiles[name]
+    except KeyError as e:
+        raise ConfigError(f"No such profile: {name}") from e
+    _repository().update(
+        Profile(name, profile.site, description, profile.read_only, profile.auth)
+    )
 
 
 def set_read_only(name: str, read_only: bool) -> None:
     """Mark a profile read-only (or clear the mark)."""
-    data = _load()
-    if name not in data["profiles"]:
-        raise ConfigError(f"No such profile: {name}")
-    if read_only:
-        data["profiles"][name]["read_only"] = True
-    else:
-        data["profiles"][name].pop("read_only", None)
-    _save(data)
+    collection = _repository().list()
+    try:
+        profile = collection.profiles[name]
+    except KeyError as e:
+        raise ConfigError(f"No such profile: {name}") from e
+    _repository().update(
+        Profile(name, profile.site, profile.description, read_only, profile.auth)
+    )
 
 
 def remove_profile(name: str) -> None:
-    data = _load()
-    if name not in data["profiles"]:
-        raise ConfigError(f"No such profile: {name}")
-    del data["profiles"][name]
-    _delete_secret(name)
-    if data["default"] == name:
-        data["default"] = next(iter(data["profiles"]), None)
-    _save(data)
+    _repository().remove(name)
 
 
 def set_default(name: str) -> None:
-    data = _load()
-    if name not in data["profiles"]:
-        raise ConfigError(f"No such profile: {name}")
-    data["default"] = name
-    _save(data)
+    _repository().set_default(name)
 
 
 def _env_truthy(value: str | None) -> bool:
