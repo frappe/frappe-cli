@@ -58,6 +58,7 @@ DISCOVER METHODS
 
 RAW API
   frappectl api method/frappe.client.get_count -F doctype=User    # -F typed, -f string
+  frappectl api method/frappe.client.get_list -F doctype=User -F 'filters:={"enabled":1}'  # :=  raw JSON
   frappectl api method/gameplan.api.get_unread_count
   frappectl api document/ToDo --method GET
   # Workflow actions: frappectl api method/frappe.model.workflow.apply_workflow

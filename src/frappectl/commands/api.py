@@ -35,7 +35,10 @@ def api(
         help="API path, e.g. 'method/frappe.client.get_count' or 'document/User'.",
     ),
     fields: list[str] = typer.Option(
-        [], "-F", "--field", help="key=value param (typed). Repeatable."
+        [],
+        "-F",
+        "--field",
+        help="key=value (typed scalar) or key:=value (raw JSON). Repeatable.",
     ),
     raw_fields: list[str] = typer.Option(
         [], "-f", "--raw-field", help="key=value param (always string). Repeatable."
@@ -75,6 +78,17 @@ def api(
             raise fail(f"Could not read --input: {e}", 2)
 
     http_method = (method or ("POST" if body is not None else "GET")).upper()
+
+    # A GET has no body, so --input on a GET only makes sense as query
+    # parameters. Merge its top-level keys into the query alongside -F/-f.
+    if http_method == "GET" and body is not None:
+        if not isinstance(body, dict):
+            raise fail(
+                "--input for a GET request must be a JSON object; its keys are "
+                "sent as query parameters.",
+                2,
+            )
+        params.update(body)
 
     clean_path = path.lstrip("/")
     if clean_path.startswith("api/v2/"):

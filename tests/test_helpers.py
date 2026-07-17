@@ -54,6 +54,51 @@ def test_parse_set_bad():
         helpers.parse_set(["nope"])
 
 
+def test_parse_method_params_scalars():
+    assert helpers.parse_method_params(["limit=100", "unread=true", "name=x"]) == {
+        "limit": 100,
+        "unread": True,
+        "name": "x",
+    }
+
+
+def test_parse_method_params_json_values():
+    # ``key:=value`` parses the value as raw JSON: objects and arrays pass
+    # through structurally rather than being flattened to a string.
+    assert helpers.parse_method_params(
+        [
+            'filter:={"inMailbox":"a"}',
+            'emails:=["a@example.com","b@example.com"]',
+            "count:=3",
+            "flag:=false",
+            "nothing:=null",
+        ]
+    ) == {
+        "filter": {"inMailbox": "a"},
+        "emails": ["a@example.com", "b@example.com"],
+        "count": 3,
+        "flag": False,
+        "nothing": None,
+    }
+
+
+def test_parse_method_params_scalar_with_colon_in_value():
+    # A ``:`` inside the value (not immediately before ``=``) stays a scalar.
+    assert helpers.parse_method_params(["ts=2026-07-17T10:00:00"]) == {
+        "ts": "2026-07-17T10:00:00"
+    }
+
+
+def test_parse_method_params_bad_json():
+    with pytest.raises(UsageError):
+        helpers.parse_method_params(["filter:={not json}"])
+
+
+def test_parse_method_params_missing_equals():
+    with pytest.raises(UsageError):
+        helpers.parse_method_params(["nope"])
+
+
 def test_parse_fields():
     assert helpers.parse_fields("a,b, c") == ["a", "b", "c"]
     assert helpers.parse_fields("*") == ["*"]
