@@ -8,7 +8,6 @@ could sit on this class without touching the CLI.
 from __future__ import annotations
 
 import json
-import sys
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -16,6 +15,7 @@ import httpx
 
 from .credentials import ApiKeyProvider, CredentialProvider
 from .errors import FrappeError, extract_message
+from .output import err_console
 from .site import SiteURL
 
 Document = dict[str, Any]
@@ -134,7 +134,7 @@ class FrappeTransport:
 
     @staticmethod
     def _dbg(line: str) -> None:
-        print(line, file=sys.stderr)
+        err_console.print(line, markup=False, highlight=False, soft_wrap=True)
 
     def _log_request(self, request: httpx.Request) -> None:
         self._dbg(f"→ {request.method} {request.url}")
