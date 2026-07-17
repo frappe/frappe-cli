@@ -263,7 +263,10 @@ def call_method(
         None, "--name", help="Existing document name. Required with --doctype."
     ),
     fields: list[str] = typer.Option(
-        [], "-F", "--field", help="key=value param (typed). Repeatable."
+        [],
+        "-F",
+        "--field",
+        help="key=value (typed scalar) or key:=value (raw JSON). Repeatable.",
     ),
     raw_fields: list[str] = typer.Option(
         [], "-f", "--raw-field", help="key=value param (always string). Repeatable."

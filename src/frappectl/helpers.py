@@ -114,8 +114,48 @@ def parse_set(assignments: list[str]) -> dict[str, Any]:
 
 
 def parse_method_params(params: list[str]) -> dict[str, Any]:
-    """Parse gh-style ``-F key=value`` method parameters."""
-    return parse_set(params)
+    """Parse gh-style ``-F`` params into a dict of typed values.
+
+    Two forms are supported per token:
+
+    * ``key=value`` — best-effort scalar coercion (numbers, booleans, ``null``,
+      otherwise a string), matching ``--set`` / filter values::
+
+          -F limit=100          # int 100
+          -F unread=true        # bool True
+
+    * ``key:=value`` — ``value`` is parsed as raw JSON, so objects and arrays
+      pass through structurally::
+
+          -F filter:='{"inMailbox":"a"}'
+          -F emails:='["a@example.com","b@example.com"]'
+
+    Structured values are sent as native JSON in a request body and JSON-encoded
+    into the query string for GET requests (see :func:`_clean_params` in the
+    transport layer), so the same ``-F`` behaves identically either way.
+    """
+    out: dict[str, Any] = {}
+    for item in params:
+        eq = item.find("=")
+        if eq < 1:
+            raise UsageError(f"-F expects key=value or key:=value, got {item!r}")
+        if item[eq - 1] == ":":
+            key = item[: eq - 1].strip()
+            raw = item[eq + 1 :]
+            if not key:
+                raise UsageError(f"-F expects key:=value, got {item!r}")
+            try:
+                out[key] = json.loads(raw)
+            except json.JSONDecodeError as e:
+                raise UsageError(
+                    f"-F {key}:= expects a JSON value, got {raw!r}: {e}"
+                ) from e
+        else:
+            key = item[:eq].strip()
+            if not key:
+                raise UsageError(f"-F expects key=value, got {item!r}")
+            out[key] = _coerce(item[eq + 1 :])
+    return out
 
 
 def default_fields(meta: dict[str, Any]) -> list[str]:

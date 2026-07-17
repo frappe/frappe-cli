@@ -336,3 +336,83 @@ def test_api_method_get(env):
     )
     assert result.exit_code == 0
     assert result.stdout.strip() == "5"
+
+
+@respx.mock
+def test_api_get_structured_field_json_encodes_query(env):
+    route = respx.get(f"{BASE}/api/v2/method/frappe.client.get_list").mock(
+        return_value=httpx.Response(200, json={"data": []})
+    )
+    result = runner.invoke(
+        app,
+        [
+            "api",
+            "method/frappe.client.get_list",
+            "-F",
+            "doctype=User",
+            "-F",
+            'filters:={"enabled":1}',
+            "-F",
+            'or_filters:=[["a","=","b"]]',
+        ],
+    )
+    assert result.exit_code == 0, result.stderr
+    q = route.calls.last.request.url.params
+    # Scalars go through plainly; containers are JSON-encoded on the wire.
+    assert q["doctype"] == "User"
+    assert q["filters"] == '{"enabled": 1}'
+    assert q["or_filters"] == '[["a", "=", "b"]]'
+
+
+@respx.mock
+def test_api_post_structured_field_native_json_body(env):
+    route = respx.post(f"{BASE}/api/v2/method/some.method").mock(
+        return_value=httpx.Response(200, json={"data": "ok"})
+    )
+    result = runner.invoke(
+        app,
+        [
+            "api",
+            "method/some.method",
+            "-X",
+            "POST",
+            "-F",
+            'emails:=["a@example.com","b@example.com"]',
+            "-F",
+            "limit=10",
+        ],
+    )
+    assert result.exit_code == 0, result.stderr
+    import json as _json
+
+    body = _json.loads(route.calls.last.request.content)
+    # Same -F, but in a body the structure is native JSON, not a string.
+    assert body == {"emails": ["a@example.com", "b@example.com"], "limit": 10}
+
+
+@respx.mock
+def test_api_get_with_input_sends_body_keys_as_query(env):
+    route = respx.get(f"{BASE}/api/v2/method/frappe.client.get_count").mock(
+        return_value=httpx.Response(200, json={"data": 2})
+    )
+    result = runner.invoke(
+        app,
+        ["api", "method/frappe.client.get_count", "-X", "GET", "--input", "-"],
+        input='{"doctype": "User", "filters": {"enabled": 1}}',
+    )
+    assert result.exit_code == 0, result.stderr
+    assert route.called
+    q = route.calls.last.request.url.params
+    assert q["doctype"] == "User"
+    assert q["filters"] == '{"enabled": 1}'
+
+
+@respx.mock
+def test_api_get_with_non_object_input_errors(env):
+    result = runner.invoke(
+        app,
+        ["api", "method/frappe.ping", "-X", "GET", "--input", "-"],
+        input="[1, 2, 3]",
+    )
+    assert result.exit_code == 2
+    assert "must be a JSON object" in result.stderr

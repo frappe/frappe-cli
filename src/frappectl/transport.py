@@ -422,7 +422,16 @@ def _clean_params(
 ) -> dict[str, Any] | None:
     if not params:
         return params
-    return {k: v for k, v in params.items() if v is not None}
+    cleaned: dict[str, Any] = {}
+    for k, v in params.items():
+        if v is None:
+            continue
+        # httpx serializes scalars (and bool/None) for a query string but not
+        # nested containers. Frappe expects those as JSON strings anyway
+        # (filters, structured -F values), so encode dicts/lists here. Values
+        # already stringified upstream (e.g. json.dumps'd filters) pass through.
+        cleaned[k] = json.dumps(v) if isinstance(v, (dict, list)) else v
+    return cleaned
 
 
 def _safe_json(resp: httpx.Response) -> Any:
