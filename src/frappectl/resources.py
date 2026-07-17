@@ -7,6 +7,7 @@ import time
 from typing import Any, BinaryIO, cast
 
 from .errors import FrappeError
+from .output import err_console
 from .site import endpoint_path
 from .transport import (
     DISCOVERY_FALLBACK_BACKOFF,
@@ -181,7 +182,12 @@ class DiscoveryAPI:
                 wait = float(raw_wait) if raw_wait else DISCOVERY_FALLBACK_BACKOFF
             except ValueError:
                 wait = DISCOVERY_FALLBACK_BACKOFF
-            time.sleep(max(0.0, min(wait, DISCOVERY_MAX_RETRY_WAIT)))
+            wait = max(0.0, min(wait, DISCOVERY_MAX_RETRY_WAIT))
+            err_console.print(
+                f"[dim]Discovery cache is being generated; "
+                f"retrying in {wait:g} seconds.[/dim]"
+            )
+            time.sleep(wait)
 
     def root(self) -> Any:
         return self._get("/api/v2/discovery")
