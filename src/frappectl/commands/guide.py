@@ -61,12 +61,6 @@ RAW API
   frappectl api method/frappe.client.get_list -F doctype=User -F 'filters:={"enabled":1}'  # :=  raw JSON
   frappectl api method/gameplan.api.get_unread_count
   frappectl api document/ToDo --method GET
-  # Workflow actions: frappectl api method/frappe.model.workflow.apply_workflow
-  # Background jobs:   frappectl doc list "RQ Job"
-
-TIPS FOR AGENTS
-  - Mutations (delete, cancel, update) run immediately, with no confirmation prompt.
-  - `frappectl <command> --help` documents every flag.
 """
 
 
