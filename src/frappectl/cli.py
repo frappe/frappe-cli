@@ -13,6 +13,7 @@ from .commands import assistant as assistant_cmd
 from .commands import auth, doc, doctype, file, report
 from .commands import guide as guide_cmd
 from .commands import method as method_cmd
+from .commands import query as query_cmd
 from .commands import update as update_cmd
 from .config import ConfigError
 from .errors import FrappeError, UsageError
@@ -36,6 +37,7 @@ app.add_typer(method_cmd.app, name="method")
 app.command(name="api", help=api_cmd.api.__doc__)(api_cmd.api)
 app.command(name="guide", help=guide_cmd.guide.__doc__)(guide_cmd.guide)
 app.command(name="update", help=update_cmd.update.__doc__)(update_cmd.update)
+app.command(name="query", help=query_cmd.query.__doc__)(query_cmd.query)
 # `frappectl assistant [tool] -- <args>` — launch a CLI agent as a Frappe
 # assistant. allow_extra_args/ignore_unknown_options let trailing args (and
 # the child tool's own flags) pass through untouched via ctx.args.

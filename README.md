@@ -23,6 +23,7 @@ frappectl doc delete ToDo abc123
 
 frappectl doctype show "Sales Invoice" --json         # discover the schema first
 frappectl report run "Accounts Receivable" -f company="Frappe" --json
+frappectl -s raven query 'select count(*) as users from tabUser'
 frappectl file upload ./contract.pdf --doctype "Sales Invoice" --name SINV-0001 --private
 frappectl api method/frappe.client.get_count -F doctype=User
 frappectl api method/gameplan.api.get_unread_count    # raw API, when verbs aren't enough
@@ -130,6 +131,7 @@ it won't corrupt `--json` output.
 | `frappectl doc submit\|cancel\|amend` | Run document lifecycle actions. |
 | `frappectl doctype list` / `frappectl doctype show <name>` | Discover doctypes and schema. |
 | `frappectl report run <name>` | Run a report with the same filter syntax as `doc list`. |
+| `frappectl query <sql>` | Run read-only SQL through System Console and print a table. Requires System Manager or Administrator. |
 | `frappectl method search\|list\|show` | Discover whitelisted methods (RPC paths and doctype methods). |
 | `frappectl method call <path>` | Invoke an RPC method; add `--doctype/--name` to call a doctype method. |
 | `frappectl file upload\|download` | Transfer files; upload supports `--doctype/--name` and `--private`. |
