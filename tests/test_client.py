@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 import respx
@@ -14,7 +16,7 @@ def client():
 
 @respx.mock
 def test_list_documents():
-    respx.get(f"{BASE}/api/v2/document/ToDo").mock(
+    respx.request("QUERY", f"{BASE}/api/v2/document/ToDo").mock(
         return_value=httpx.Response(
             200, json={"data": [{"name": "a"}, {"name": "b"}], "has_next_page": True}
         )
@@ -68,7 +70,7 @@ def test_401_message():
 
 @respx.mock
 def test_call_method_get():
-    respx.get(f"{BASE}/api/v2/method/frappe.client.get_count").mock(
+    respx.request("QUERY", f"{BASE}/api/v2/method/frappe.client.get_count").mock(
         return_value=httpx.Response(200, json={"data": 42})
     )
     assert (
@@ -133,7 +135,7 @@ def test_stream_download_raises_on_error():
 
 @respx.mock
 def test_count():
-    respx.get(f"{BASE}/api/v2/doctype/ToDo/count").mock(
+    respx.request("QUERY", f"{BASE}/api/v2/doctype/ToDo/count").mock(
         return_value=httpx.Response(200, json={"data": 7})
     )
     assert client().get_count("ToDo") == 7
@@ -154,7 +156,7 @@ def test_cross_host_redirect_does_not_forward_credential():
 
 @respx.mock
 def test_debug_requests_sql_and_emits_server_debug(capsys):
-    route = respx.get(f"{BASE}/api/v2/document/ToDo").mock(
+    route = respx.request("QUERY", f"{BASE}/api/v2/document/ToDo").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -168,16 +170,18 @@ def test_debug_requests_sql_and_emits_server_debug(capsys):
         )
     )
     FrappeClient(BASE, "k:s", debug=True).list_documents("ToDo", fields=["name"])
-    assert route.calls.last.request.url.params["debug"] == "true"
+    assert json.loads(route.calls.last.request.content)["debug"] == "true"
     err = capsys.readouterr().err
-    assert "→ GET" in err
+    assert "→ QUERY" in err
     assert "authorization: token ***" in err
     assert "[server] SELECT `name` FROM `tabToDo` LIMIT 1" in err
 
 
 @respx.mock
 def test_debug_emits_server_traceback_on_error(capsys):
-    respx.get(f"{BASE}/api/v2/method/suite.mail.api.mail.get_all_inbox_threads").mock(
+    respx.request(
+        "QUERY", f"{BASE}/api/v2/method/suite.mail.api.mail.get_all_inbox_threads"
+    ).mock(
         return_value=httpx.Response(
             500,
             json={
@@ -208,7 +212,7 @@ def test_debug_emits_server_traceback_on_error(capsys):
 
 @respx.mock
 def test_no_server_traceback_without_debug(capsys):
-    respx.get(f"{BASE}/api/v2/method/x.y").mock(
+    respx.request("QUERY", f"{BASE}/api/v2/method/x.y").mock(
         return_value=httpx.Response(
             500,
             json={"errors": [{"exception": "Traceback...\nKeyError: 'z'"}]},
@@ -223,7 +227,7 @@ def test_no_server_traceback_without_debug(capsys):
 
 @respx.mock
 def test_server_exception_not_flagged_under_debug():
-    respx.get(f"{BASE}/api/v2/method/x.y").mock(
+    respx.request("QUERY", f"{BASE}/api/v2/method/x.y").mock(
         return_value=httpx.Response(
             500,
             json={"errors": [{"exception": "Traceback...\nKeyError: 'z'"}]},
@@ -251,11 +255,11 @@ def test_error_without_traceback_not_flagged():
 
 @respx.mock
 def test_no_debug_param_or_output_by_default(capsys):
-    route = respx.get(f"{BASE}/api/v2/document/ToDo").mock(
+    route = respx.request("QUERY", f"{BASE}/api/v2/document/ToDo").mock(
         return_value=httpx.Response(200, json={"data": [], "has_next_page": False})
     )
     client().list_documents("ToDo", fields=["name"])
-    assert "debug" not in route.calls.last.request.url.params
+    assert "debug" not in json.loads(route.calls.last.request.content)
     assert capsys.readouterr().err == ""
 
 
@@ -303,11 +307,98 @@ def test_read_only_refuses_writes(call):
 
 
 @respx.mock
-def test_read_only_get_method_call_allowed():
-    route = respx.get(f"{BASE}/api/v2/method/frappe.client.get_count").mock(
-        return_value=httpx.Response(200, json={"data": 3})
-    )
+def test_read_only_get_method_call_prefers_query():
+    route = respx.request(
+        "QUERY", f"{BASE}/api/v2/method/frappe.client.get_count"
+    ).mock(return_value=httpx.Response(200, json={"data": 3}))
     assert ro_client().call_method("frappe.client.get_count", http_method="GET") == 3
+    assert route.called
+
+
+@respx.mock
+def test_read_only_list_sends_query_with_json_body():
+    route = respx.request("QUERY", f"{BASE}/api/v2/document/ToDo").mock(
+        return_value=httpx.Response(
+            200, json={"data": [{"name": "a"}], "has_next_page": False}
+        )
+    )
+    rows, _ = ro_client().list_documents(
+        "ToDo", fields=["name"], filters={"status": "Open"}, limit=2
+    )
+    assert rows == [{"name": "a"}]
+    body = json.loads(route.calls.last.request.content)
+    assert body["fields"] == ["name"]
+    assert body["filters"] == {"status": "Open"}
+    assert body["limit"] == 2
+
+
+@respx.mock
+def test_query_falls_back_to_get_and_is_remembered():
+    respx.request("QUERY", f"{BASE}/api/v2/document/ToDo").mock(
+        return_value=httpx.Response(405)
+    )
+    get_route = respx.get(f"{BASE}/api/v2/document/ToDo").mock(
+        return_value=httpx.Response(200, json={"data": [], "has_next_page": False})
+    )
+    c = ro_client()
+    c.list_documents("ToDo", filters={"status": "Open"})
+    # The GET fallback re-encodes containers for the query string.
+    assert get_route.calls.last.request.url.params["filters"] == '{"status": "Open"}'
+    # The failed probe is remembered: the next read goes straight to GET.
+    c.list_documents("ToDo")
+    query_route = respx.request("QUERY", f"{BASE}/api/v2/document/ToDo")
+    assert len(query_route.calls) == 1
+    assert len(get_route.calls) == 2
+
+
+@respx.mock
+def test_query_success_skips_future_fallback_probes():
+    route = respx.request("QUERY", f"{BASE}/api/v2/doctype/ToDo/count").mock(
+        return_value=httpx.Response(200, json={"data": 7})
+    )
+    c = ro_client()
+    assert c.get_count("ToDo", filters={"status": "Open"}) == 7
+    assert c.get_count("ToDo") == 7
+    assert len(route.calls) == 2
+    assert json.loads(route.calls[0].request.content)["filters"] == {"status": "Open"}
+
+
+@respx.mock
+def test_query_double_failure_surfaces_get_error_and_reprobes():
+    respx.request("QUERY", f"{BASE}/api/v2/method/x.y").mock(
+        return_value=httpx.Response(403, json={"errors": [{"message": "nope"}]})
+    )
+    respx.get(f"{BASE}/api/v2/method/x.y").mock(
+        return_value=httpx.Response(403, json={"errors": [{"message": "nope"}]})
+    )
+    c = ro_client()
+    with pytest.raises(FrappeError) as ei:
+        c.call_method("x.y", http_method="GET")
+    assert ei.value.status_code == 403
+    # A double failure proves nothing about QUERY support: the next read
+    # probes QUERY again instead of settling on GET.
+    with pytest.raises(FrappeError):
+        c.call_method("x.y", http_method="GET")
+    query_route = respx.request("QUERY", f"{BASE}/api/v2/method/x.y")
+    assert len(query_route.calls) == 2
+
+
+@respx.mock
+def test_writable_profile_also_prefers_query():
+    route = respx.request("QUERY", f"{BASE}/api/v2/document/ToDo").mock(
+        return_value=httpx.Response(200, json={"data": [], "has_next_page": False})
+    )
+    client().list_documents("ToDo", filters={"status": "Open"})
+    assert route.called
+    assert json.loads(route.calls.last.request.content)["filters"] == {"status": "Open"}
+
+
+@respx.mock
+def test_read_only_allows_explicit_query_request():
+    route = respx.request("QUERY", f"{BASE}/api/v2/document/ToDo").mock(
+        return_value=httpx.Response(200, json={"data": []})
+    )
+    assert ro_client().request("QUERY", "/api/v2/document/ToDo", json_body={}) == []
     assert route.called
 
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 from typing import Any, BinaryIO, cast
 
@@ -36,9 +35,9 @@ class DocumentsAPI:
     ) -> tuple[list[Document], bool]:
         params: dict[str, Any] = {"start": start, "limit": limit}
         if fields:
-            params["fields"] = json.dumps(fields)
+            params["fields"] = fields
         if filters:
-            params["filters"] = json.dumps(filters)
+            params["filters"] = filters
         if order_by:
             params["order_by"] = order_by
         if self._transport.debug:
@@ -111,11 +110,10 @@ class DocumentsAPI:
         )
 
     def count(self, doctype: str, filters: Filters | None = None) -> int:
-        params = {"filters": json.dumps(filters)} if filters else None
+        params = {"filters": filters} if filters else None
         return cast(
             int,
-            self._transport.request(
-                "GET",
+            self._transport.request_read(
                 endpoint_path("api", "v2", "doctype", doctype, "count"),
                 params=params,
             ),
@@ -136,7 +134,7 @@ class MethodsAPI:
         path = endpoint_path("api", "v2", "method", method)
         verb = http_method.upper()
         if verb == "GET":
-            return self._transport.request("GET", path, params=params)
+            return self._transport.request_read(path, params=params)
         return self._transport.request(verb, path, json_body=params or {})
 
     def call_document(
@@ -151,7 +149,7 @@ class MethodsAPI:
         path = endpoint_path("api", "v2", "document", doctype, name, "method", method)
         verb = http_method.upper()
         if verb == "GET":
-            return self._transport.request("GET", path, params=params)
+            return self._transport.request_read(path, params=params)
         return self._transport.request(verb, path, json_body=params or {})
 
     def logged_user(self) -> str:

@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 import respx
@@ -66,17 +68,16 @@ def test_doc_list_meta_driven_fields(env):
             },
         )
     )
-    list_route = respx.get(f"{BASE}/api/v2/document/ToDo").mock(
+    list_route = respx.request("QUERY", f"{BASE}/api/v2/document/ToDo").mock(
         return_value=httpx.Response(
             200, json={"data": [{"name": "a"}], "has_next_page": False}
         )
     )
     result = runner.invoke(app, ["--json", "doc", "list", "ToDo"])
     assert result.exit_code == 0
-    assert "fields" in list_route.calls.last.request.url.params
-    fields = list_route.calls.last.request.url.params["fields"]
-    assert "description" in fields and "status" in fields
-    assert list_route.calls.last.request.url.params["order_by"] == "creation desc"
+    body = json.loads(list_route.calls.last.request.content)
+    assert "description" in body["fields"] and "status" in body["fields"]
+    assert body["order_by"] == "creation desc"
 
 
 @respx.mock
@@ -208,7 +209,7 @@ def test_oauth_flag_skips_authentication_choice(monkeypatch):
 
 @respx.mock
 def test_get_logged_user_only_trusts_non_guest_data():
-    route = respx.get(f"{BASE}/api/v2/method/frappe.auth.get_logged_user")
+    route = respx.request("QUERY", f"{BASE}/api/v2/method/frappe.auth.get_logged_user")
     with FrappeClient(BASE, "k:s") as client:
         route.mock(return_value=httpx.Response(200, json={"data": "user@example.com"}))
         assert client.get_logged_user() == "user@example.com"
@@ -283,7 +284,7 @@ def test_error_includes_hint(env):
 
 @respx.mock
 def test_server_exception_nudges_debug(env):
-    respx.get(f"{BASE}/api/v2/method/x.y").mock(
+    respx.request("QUERY", f"{BASE}/api/v2/method/x.y").mock(
         return_value=httpx.Response(
             500,
             json={"errors": [{"exception": "Traceback...\nKeyError: 'z'"}]},
@@ -297,7 +298,7 @@ def test_server_exception_nudges_debug(env):
 
 @respx.mock
 def test_no_debug_nudge_under_debug(env):
-    respx.get(f"{BASE}/api/v2/method/x.y").mock(
+    respx.request("QUERY", f"{BASE}/api/v2/method/x.y").mock(
         return_value=httpx.Response(
             500,
             json={"errors": [{"exception": "Traceback...\nKeyError: 'z'"}]},

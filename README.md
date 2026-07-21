@@ -93,6 +93,13 @@ A read-only profile refuses every unsafe HTTP method **before the request leaves
 machine**. This removes the obvious production footgun: an exploratory command can't
 accidentally mutate the site.
 
+On servers that support it, reads are sent with the
+[QUERY](https://github.com/frappe/frappe/pull/41135) HTTP verb instead of GET: params
+travel as a native JSON body rather than a length-limited query string, and the server
+rolls back the transaction at the end of the request — so for read-only profiles the
+guarantee no longer rests on every endpoint being well-behaved. Servers that don't
+accept QUERY transparently fall back to plain GET.
+
 ```sh
 frappectl auth login https://prod.example.com --name prod --read-only
 frappectl auth configure prod --read-only             # lock an existing profile

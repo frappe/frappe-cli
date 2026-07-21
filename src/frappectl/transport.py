@@ -32,8 +32,17 @@ DISCOVERY_FALLBACK_BACKOFF = 2.0
 _DEBUG_BODY_LIMIT = 2000
 
 # HTTP methods that never mutate server state. A read-only profile is allowed
-# exactly these; anything else is refused before it reaches the wire.
-_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+# exactly these; anything else is refused before it reaches the wire. QUERY
+# (GET-like transaction semantics with a POST-like body; frappe/frappe#41135)
+# is safe: the server rolls the transaction back at the end of the request.
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "QUERY"}
+
+# Responses that mean "this server/route does not speak QUERY" rather than
+# "the request failed": routing rejects the verb (405/501, or 404 behind some
+# proxies), and pre-QUERY whitelisting rejects it with a PermissionError (403).
+# A genuine failure with one of these statuses fails the GET fallback too, so
+# falling back never masks a real error — it only costs one extra request.
+_QUERY_FALLBACK_STATUSES = {403, 404, 405, 501}
 
 
 def _auth_header(token_type: str, token: str) -> str:
@@ -86,6 +95,9 @@ class FrappeTransport:
         self.site = str(site_url)
         self.debug = debug
         self.read_only = read_only
+        # Whether the server accepts the QUERY verb. Unknown until a read on a
+        # QUERY-mounted route settles it; None means "keep trying QUERY".
+        self._query_supported: bool | None = None
         if credential_provider is None:
             if token_type == "bearer":
                 credential_provider = _LegacyBearerProvider(token, on_unauthorized)
@@ -261,6 +273,49 @@ class FrappeTransport:
         )
         return self.handle_response(resp)
 
+    def request_read(self, path: str, *, params: dict[str, Any] | None = None) -> Any:
+        """Make a GET-shaped read and return the unwrapped ``data`` payload.
+
+        Prefers the QUERY verb; see :meth:`send_read`.
+        """
+        return self.handle_response(self.send_read(path, params=params))
+
+    def send_read(
+        self, path: str, *, params: dict[str, Any] | None = None
+    ) -> httpx.Response:
+        """Send one read request, preferring the QUERY verb over GET.
+
+        QUERY is GET with a request body: params travel as native JSON instead
+        of a length-limited JSON-in-query-string encoding, and the server
+        rolls the transaction back at the end of the request — which is
+        exactly the guarantee a read-only profile wants, enforced server-side
+        rather than by trusting every endpoint to be well-behaved. Servers
+        that don't speak QUERY get a GET fallback, and the outcome is
+        remembered so only the first read pays the probe.
+
+        Only routes that mount QUERY (document lists, count, RPC and
+        doc-method calls) should come through here: a GET-only route would
+        probe uselessly and could teach ``_query_supported`` the wrong answer.
+        """
+        if self._query_supported is False:
+            return self.send("GET", path, params=_clean_params(params))
+
+        try:
+            resp = self._send("QUERY", path, json=_clean_body(params))
+        except httpx.HTTPError as e:
+            raise FrappeError(f"Could not reach {self.site}: {e}") from e
+        if resp.status_code not in _QUERY_FALLBACK_STATUSES:
+            if resp.status_code < 400:
+                self._query_supported = True
+            return resp
+
+        fallback = self.send("GET", path, params=_clean_params(params))
+        # Only a fallback that *succeeds* proves QUERY itself was the problem;
+        # when both fail (e.g. a genuine 403) the next read probes again.
+        if fallback.status_code < 400 and self._query_supported is None:
+            self._query_supported = False
+        return fallback
+
     def request_read_only_post(self, path: str, *, json_body: Any) -> Any:
         """POST to an endpoint whose server-side contract guarantees no writes.
 
@@ -279,7 +334,7 @@ class FrappeTransport:
         if self.read_only and method.upper() not in _SAFE_METHODS:
             raise FrappeError(
                 f"Refusing to send a {method.upper()} request: this profile is "
-                "read-only. Only GET, HEAD, and OPTIONS requests are permitted. Use a "
+                "read-only. Only GET, HEAD, OPTIONS, and QUERY requests are permitted. Use a "
                 "writable profile, or pass -X GET for a whitelisted read method."
             )
         try:
@@ -376,10 +431,7 @@ class FrappeTransport:
         self, path: str, *, params: dict[str, Any] | None = None
     ) -> tuple[list[Document], bool]:
         """Return a paginated response without discarding its page marker."""
-        try:
-            resp = self._send("GET", path, params=_clean_params(params))
-        except httpx.HTTPError as e:
-            raise FrappeError(f"Could not reach {self.site}: {e}") from e
+        resp = self.send_read(path, params=params)
         if resp.status_code >= 400:
             body = _safe_json(resp)
             raise self._server_error(
@@ -392,10 +444,13 @@ class FrappeTransport:
 
     def request_envelope_data(self, method: str, path: str) -> Any:
         """Return data only when the server sent a trusted JSON envelope."""
-        try:
-            resp = self._send(method, path)
-        except httpx.HTTPError as e:
-            raise FrappeError(f"Could not reach {self.site}: {e}") from e
+        if method.upper() == "GET":
+            resp = self.send_read(path)
+        else:
+            try:
+                resp = self._send(method, path)
+            except httpx.HTTPError as e:
+                raise FrappeError(f"Could not reach {self.site}: {e}") from e
         self._handle(resp)
         body = _safe_json(resp)
         if isinstance(body, dict) and "data" in body:
@@ -445,6 +500,17 @@ def _clean_params(
         # already stringified upstream (e.g. json.dumps'd filters) pass through.
         cleaned[k] = json.dumps(v) if isinstance(v, (dict, list)) else v
     return cleaned
+
+
+def _clean_body(params: dict[str, Any] | None) -> dict[str, Any]:
+    """Params as a QUERY JSON body: drop Nones, keep native containers.
+
+    The server parses the body like a POST form, so containers go over the
+    wire as JSON values instead of the JSON-in-query-string encoding GET needs.
+    """
+    if not params:
+        return {}
+    return {k: v for k, v in params.items() if v is not None}
 
 
 def _safe_json(resp: httpx.Response) -> Any:

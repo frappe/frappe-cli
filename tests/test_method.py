@@ -386,8 +386,8 @@ def test_method_call_explicit_get_skips_detail_fetch(env):
     detail = respx.get(
         f"{BASE}/api/v2/discovery/doctype/User/method/get_something"
     ).mock(return_value=httpx.Response(200, json={"data": {}}))
-    invoke = respx.get(
-        f"{BASE}/api/v2/document/User/Administrator/method/get_something"
+    invoke = respx.request(
+        "QUERY", f"{BASE}/api/v2/document/User/Administrator/method/get_something"
     ).mock(return_value=httpx.Response(200, json={"data": {"ok": 1}}))
     result = runner.invoke(
         app,
@@ -461,7 +461,7 @@ def test_method_call_rpc_explicit_get_hits_method_endpoint(env):
     detail = respx.get(f"{BASE}/api/v2/discovery/method/frappe.ping").mock(
         return_value=httpx.Response(200, json={"data": {}})
     )
-    invoke = respx.get(f"{BASE}/api/v2/method/frappe.ping").mock(
+    invoke = respx.request("QUERY", f"{BASE}/api/v2/method/frappe.ping").mock(
         return_value=httpx.Response(200, json={"data": "pong"})
     )
     result = runner.invoke(
@@ -473,14 +473,15 @@ def test_method_call_rpc_explicit_get_hits_method_endpoint(env):
 
 
 @respx.mock
-def test_method_call_read_only_defaults_to_get(monkeypatch):
+def test_method_call_read_only_defaults_to_safe_verb(monkeypatch):
     monkeypatch.setenv("FRAPPE_SITE", BASE)
     monkeypatch.setenv("FRAPPE_API_KEY", "k")
     monkeypatch.setenv("FRAPPE_API_SECRET", "s")
     monkeypatch.setenv("FRAPPE_READ_ONLY", "1")
-    invoke = respx.get(f"{BASE}/api/v2/method/frappe.client.get_count").mock(
-        return_value=httpx.Response(200, json={"data": 3})
-    )
+    # Read-only profiles prefer the QUERY verb for GET-shaped calls.
+    invoke = respx.request(
+        "QUERY", f"{BASE}/api/v2/method/frappe.client.get_count"
+    ).mock(return_value=httpx.Response(200, json={"data": 3}))
     result = runner.invoke(
         app,
         ["--json", "method", "call", "frappe.client.get_count", "-F", "doctype=User"],
