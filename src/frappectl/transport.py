@@ -261,6 +261,19 @@ class FrappeTransport:
         )
         return self.handle_response(resp)
 
+    def request_read_only_post(self, path: str, *, json_body: Any) -> Any:
+        """POST to an endpoint whose server-side contract guarantees no writes.
+
+        This deliberately bypasses the HTTP-verb guard used by read-only profiles.
+        Keep it private to trusted client operations rather than exposing a generic
+        CLI bypass.
+        """
+        try:
+            response = self._send("POST", path, json=json_body)
+        except httpx.HTTPError as e:
+            raise FrappeError(f"Could not reach {self.site}: {e}") from e
+        return self.handle_response(response)
+
     def send(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         """Send one policy-checked request and return its undecoded response."""
         if self.read_only and method.upper() not in _SAFE_METHODS:

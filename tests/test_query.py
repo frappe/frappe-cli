@@ -102,3 +102,15 @@ def test_query_rejects_empty_input(env):
     result = runner.invoke(app, ["query", "-"], input="")
     assert result.exit_code == 2
     assert "must not be empty" in result.stderr
+
+
+@respx.mock
+def test_query_post_is_allowed_for_read_only_profile(env, monkeypatch):
+    monkeypatch.setenv("FRAPPE_READ_ONLY", "1")
+    route = respx.post(URL).mock(return_value=_response([{"value": 1}]))
+
+    result = runner.invoke(app, ["--json", "query", "select 1 as value"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == [{"value": 1}]
+    assert route.called
