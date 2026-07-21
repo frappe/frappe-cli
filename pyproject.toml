@@ -1,6 +1,6 @@
 [project]
 name = "frappectl"
-version = "0.15.2"
+version = "0.16.0"
 description = "frappectl — a command-line client for Frappe sites, built for humans and AI agents."
 readme = "README.md"
 license = { text = "MIT" }
