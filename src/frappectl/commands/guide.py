@@ -38,8 +38,9 @@ DOCUMENTS (CRUD + lifecycle)
   Filters: repeat -f field=value (also >, <, >=, <=, like), or use
   --filters-json '[["status","in",["Paid","Overdue"]]]'.
 
-REPORTS
+REPORTS AND READ-ONLY SQL
   frappectl report run "Accounts Receivable" -f company="Frappe" --json
+  frappectl query 'select count(*) as users from tabUser'  # requires System Manager/Administrator
 
 FILES
   frappectl file upload ./contract.pdf --doctype "Sales Invoice" --name SINV-0001 --private
