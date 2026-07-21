@@ -12,8 +12,6 @@ from ..errors import FrappeError
 from ..output import emit_list, fail, get_ctx
 from ..session import get_client
 
-SYSTEM_CONSOLE_METHOD = "frappe.desk.doctype.system_console.system_console.execute_code"
-
 
 def _read_query(query: Optional[str], input_file: Optional[str]) -> str:
     if query is not None and input_file is not None:
@@ -82,18 +80,7 @@ def query(
     client = get_client(c)
 
     try:
-        result = client.call_method(
-            SYSTEM_CONSOLE_METHOD,
-            params={
-                "doc": {
-                    "doctype": "System Console",
-                    "type": "SQL",
-                    "console": statement,
-                    "commit": 0,
-                }
-            },
-            http_method="POST",
-        )
+        result = client.execute_read_only_sql(statement)
     except FrappeError as e:
         raise fail(e.message)
 

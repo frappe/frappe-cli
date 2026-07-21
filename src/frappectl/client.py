@@ -101,6 +101,20 @@ class FrappeClient:
     ) -> Any:
         return self.methods.call(method, params=params, http_method=http_method)
 
+    def execute_read_only_sql(self, query: str) -> Any:
+        """Execute SQL through System Console's server-enforced read-only path."""
+        return self._transport.request_read_only_post(
+            "/api/v2/method/frappe.desk.doctype.system_console.system_console.execute_code",
+            json_body={
+                "doc": {
+                    "doctype": "System Console",
+                    "type": "SQL",
+                    "console": query,
+                    "commit": 0,
+                }
+            },
+        )
+
     def get_logged_user(self) -> str:
         return self.methods.logged_user()
 
