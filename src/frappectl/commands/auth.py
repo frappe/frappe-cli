@@ -39,9 +39,7 @@ def _choose_read_only(read_only: Optional[bool]) -> bool:
     """Default new profiles to read-only unless explicitly made writable."""
     if read_only is not None:
         return read_only
-    return typer.confirm(
-        "Read-only? (refuse all writes through this profile)", default=True
-    )
+    return not typer.confirm("Allow writes through this profile?", default=False)
 
 
 @app.command("login")

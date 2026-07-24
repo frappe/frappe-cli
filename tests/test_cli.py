@@ -217,8 +217,8 @@ def test_login_defaults_new_profile_to_read_only(monkeypatch):
 
     assert auth._choose_read_only(None) is True
     assert prompted == {
-        "message": "Read-only? (refuse all writes through this profile)",
-        "default": True,
+        "message": "Allow writes through this profile?",
+        "default": False,
     }
 
 
