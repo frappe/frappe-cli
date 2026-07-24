@@ -206,6 +206,31 @@ def test_oauth_flag_skips_authentication_choice(monkeypatch):
     assert auth._choose_oauth(True) is True
 
 
+def test_login_defaults_new_profile_to_read_only(monkeypatch):
+    prompted = {}
+
+    def confirm(message, *, default):
+        prompted.update(message=message, default=default)
+        return default
+
+    monkeypatch.setattr(auth.typer, "confirm", confirm)
+
+    assert auth._choose_read_only(None) is True
+    assert prompted == {
+        "message": "Read-only? (refuse all writes through this profile)",
+        "default": True,
+    }
+
+
+def test_login_writable_flag_overrides_read_only_default(monkeypatch):
+    def unexpected_confirm(*args, **kwargs):
+        raise AssertionError("--writable should skip the read-only prompt")
+
+    monkeypatch.setattr(auth.typer, "confirm", unexpected_confirm)
+
+    assert auth._choose_read_only(False) is False
+
+
 @respx.mock
 def test_get_logged_user_only_trusts_non_guest_data():
     route = respx.get(f"{BASE}/api/v2/method/frappe.auth.get_logged_user")
