@@ -89,12 +89,14 @@ to skip the authentication-method prompt.
 
 ### Read-only profiles
 
-A read-only profile refuses every unsafe HTTP method **before the request leaves your
-machine**. This removes the obvious production footgun: an exploratory command can't
-accidentally mutate the site.
+A new profile is read-only by default and refuses every unsafe HTTP method **before
+the request leaves your machine**. This removes the obvious production footgun: an
+exploratory command can't accidentally mutate the site. Choose `--writable` during
+login to opt out.
 
 ```sh
-frappectl auth login https://prod.example.com --name prod --read-only
+frappectl auth login https://prod.example.com --name prod
+frappectl auth login https://dev.example.com --name dev --writable
 frappectl auth configure prod --read-only             # lock an existing profile
 frappectl auth configure prod --writable              # allow writes again
 ```

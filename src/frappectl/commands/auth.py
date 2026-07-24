@@ -35,6 +35,13 @@ def _choose_oauth(use_oauth: bool) -> bool:
         typer.echo("Choose either 'oauth' or 'api-key'.", err=True)
 
 
+def _choose_read_only(read_only: Optional[bool]) -> bool:
+    """Default new profiles to read-only unless explicitly made writable."""
+    if read_only is not None:
+        return read_only
+    return not typer.confirm("Allow writes through this profile?", default=False)
+
+
 @app.command("login")
 def login(
     ctx: typer.Context,
@@ -112,12 +119,8 @@ def login(
         description = typer.prompt(
             "Description (used by assistant mode; optional)", default=""
         )
-    # Read-only is prompted like the other fields when not set explicitly;
-    # default No so a plain Enter keeps the profile writable.
-    if read_only is None:
-        read_only = typer.confirm(
-            "Read-only? (refuse all writes through this profile)", default=False
-        )
+    # New profiles are safe by default; --writable remains an explicit opt-out.
+    read_only = _choose_read_only(read_only)
 
     use_oauth = _choose_oauth(use_oauth)
 
