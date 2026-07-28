@@ -43,6 +43,12 @@ def test_print_json_keeps_a_short_value_on_one_line(capsys):
     assert capsys.readouterr().out == '{"items":[{"item_code":"A","qty":1}]}\n'
 
 
+def test_print_json_falls_back_when_the_layout_breaks(capsys, monkeypatch):
+    monkeypatch.setattr("frappectl.output._dumps", lambda value, level: "{broken")
+    print_json({"name": "X"})
+    assert json.loads(capsys.readouterr().out) == {"name": "X"}
+
+
 def test_print_json_expands_a_wide_value(capsys):
     print_json({"tags": ["tag-" + "x" * 40 for _ in range(6)]})
     out = capsys.readouterr().out
