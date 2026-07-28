@@ -30,11 +30,11 @@ import typer
 
 from .. import config
 from ..output import err_console, fail
-from .guide import GUIDE
+from .guide import render_guide
 
-# System prompt handed to the agent. Mirrors the ``barista`` recipe: the static
-# guide teaches the CLI surface, and the site list lets the agent map a human's
-# request ("the staging ERP") onto a concrete ``-s <profile>``.
+# System prompt handed to the agent. Mirrors the ``barista`` recipe: the guide
+# teaches the CLI surface and lists the configured sites, so the agent can map a
+# human's request ("the staging ERP") onto a concrete ``-s <profile>``.
 _SYSTEM_PROMPT_TEMPLATE = """\
 You are a Frappe assistant.
 
@@ -42,14 +42,7 @@ Use `frappectl` whenever you need to inspect or operate on Frappe sites.
 
 Use this `frappectl guide` output to use `frappectl` effectively:
 
-{guide}
-
-Available authenticated Frappe sites from `frappectl auth list`:
-
-{sites}
-
-When the user refers to a site by name or description, map it to the \
-appropriate site from this list."""
+{guide}"""
 
 
 @dataclass
@@ -141,36 +134,8 @@ TOOLS: list[Tool] = [
 _TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 
 
-def _render_sites() -> str:
-    """Plain-text listing of stored profiles for the system prompt.
-
-    Built in-process (no subprocess); intentionally terse, one site per line.
-    """
-    try:
-        profiles, default = config.list_profiles()
-    except config.ConfigError:
-        profiles, default = {}, None
-    if not profiles:
-        return "(no profiles stored; the human must run `frappectl auth login`)"
-    lines = []
-    for name, info in profiles.items():
-        parts = [f"- {name}: {info.get('site', '')}"]
-        desc = info.get("description", "")
-        if desc:
-            parts.append(f"— {desc}")
-        tags = []
-        if name == default:
-            tags.append("default")
-        if info.get("read_only"):
-            tags.append("read-only")
-        if tags:
-            parts.append(f"[{', '.join(tags)}]")
-        lines.append(" ".join(parts))
-    return "\n".join(lines)
-
-
 def _system_prompt() -> str:
-    return _SYSTEM_PROMPT_TEMPLATE.format(guide=GUIDE, sites=_render_sites())
+    return _SYSTEM_PROMPT_TEMPLATE.format(guide=render_guide())
 
 
 def _assistant_dir(tool_name: str) -> Path:

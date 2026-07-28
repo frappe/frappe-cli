@@ -4,7 +4,7 @@ import pytest
 from typer.testing import CliRunner
 
 from frappectl.cli import app
-from frappectl.commands import assistant
+from frappectl.commands import assistant, guide
 
 runner = CliRunner()
 
@@ -18,7 +18,7 @@ def _isolate(monkeypatch, tmp_path):
         assistant.shutil, "which", lambda name: name if name in installed else None
     )
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    monkeypatch.setattr(assistant, "_render_sites", lambda: "- staging: https://x")
+    monkeypatch.setattr(guide, "render_sites", lambda: "    - staging: https://x")
 
 
 def _argv(result) -> list[str]:

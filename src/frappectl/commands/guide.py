@@ -1,13 +1,21 @@
 """``frappectl guide`` — a self-contained usage primer for agents.
 
-This is deliberately a single, static, dependency-free command: it needs no
-site, no auth and no network, so an agent can run ``frappectl guide`` as its very
-first step to learn the CLI surface before touching a live site.
+Mostly static and dependency-free: it needs no network and no live site, so an
+agent can run ``frappectl guide`` as its very first step to learn the CLI
+surface before touching a site. The one dynamic part is the list of configured
+site profiles, read from local config, so the guide alone is enough for an agent
+to map "the staging ERP" onto a concrete ``-s <profile>``.
 """
 
 from __future__ import annotations
 
 import typer
+
+from .. import config
+
+# Replaced with the rendered profile listing. Not a str.format field: the guide
+# body contains literal braces (raw JSON examples).
+_SITES_MARKER = "<<SITES>>"
 
 GUIDE = r"""frappectl — an agent-friendly client for Frappe REST API v2.
 
@@ -17,6 +25,9 @@ SITE ACCESS
   Access is preconfigured. Pass -s <profile> when a site is specified; with
   multiple profiles, never guess. Do not run auth commands or modify FRAPPE_*
   environment variables. If access fails, ask the human to configure it.
+
+  Configured profiles:
+<<SITES>>
 
 ORIENT YOURSELF (do this before guessing field or DocType names)
   frappectl doctype list                          # all DocTypes on the site
@@ -65,6 +76,36 @@ RAW API
 """
 
 
+def render_sites() -> str:
+    """Indented listing of stored profiles, one site per line."""
+    try:
+        profiles, default = config.list_profiles()
+    except config.ConfigError:
+        profiles, default = {}, None
+    if not profiles:
+        return "    (none configured; ask the human to set up access)"
+    lines = []
+    for name, info in profiles.items():
+        parts = [f"    - {name}: {info.get('site', '')}"]
+        desc = info.get("description", "")
+        if desc:
+            parts.append(f"— {desc}")
+        tags = []
+        if name == default:
+            tags.append("default")
+        if info.get("read_only"):
+            tags.append("read-only")
+        if tags:
+            parts.append(f"[{', '.join(tags)}]")
+        lines.append(" ".join(parts))
+    return "\n".join(lines)
+
+
+def render_guide() -> str:
+    """The full guide, with the configured sites spliced in."""
+    return GUIDE.replace(_SITES_MARKER, render_sites())
+
+
 def guide() -> None:
-    """Print the agent guide to this CLI (no site or auth required)."""
-    typer.echo(GUIDE)
+    """Print the agent guide to this CLI (no live site or network required)."""
+    typer.echo(render_guide())
