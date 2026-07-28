@@ -172,17 +172,20 @@ def _slim_document(doc: Document) -> Document:
     """Strip values a reader can derive from the parent or does not need.
 
     Child rows repeat the parent's ownership, timestamps and docstatus on every
-    row, which dominates the output of a document with large tables.
+    row, which dominates the output of a document with large tables. A null
+    field says only that the field exists, which the schema already states.
     """
     slim: Document = {}
     for key, value in doc.items():
-        if key == "idx":
-            continue
-        if key == "amended_from" and value is None:
+        if key == "idx" or value is None:
             continue
         if isinstance(value, list) and value and isinstance(value[0], dict):
             slim[key] = [
-                {k: v for k, v in row.items() if k not in _CHILD_BOILERPLATE}
+                {
+                    k: v
+                    for k, v in row.items()
+                    if k not in _CHILD_BOILERPLATE and v is not None
+                }
                 if isinstance(row, dict)
                 else row
                 for row in value
