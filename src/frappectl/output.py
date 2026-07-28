@@ -116,8 +116,33 @@ def get_ctx(ctx: typer.Context) -> ApplicationContext:
     return obj
 
 
+_JSON_WIDTH = 100
+
+
+def _dumps(value: Any, level: int) -> str:
+    """Render one value, inline when it fits on a line and expanded when not."""
+    inline = json.dumps(value, separators=(",", ":"), default=str, ensure_ascii=False)
+    if level + len(inline) <= _JSON_WIDTH or not isinstance(value, (dict, list)):
+        return inline
+    pad = " " * level
+    if isinstance(value, dict):
+        body = ",\n".join(
+            f"{pad} {json.dumps(str(k), ensure_ascii=False)}:{_dumps(v, level + 1)}"
+            for k, v in value.items()
+        )
+        return f"{{\n{body}\n{pad}}}"
+    body = ",\n".join(f"{pad} {_dumps(v, level + 1)}" for v in value)
+    return f"[\n{body}\n{pad}]"
+
+
 def print_json(data: Any) -> None:
-    sys.stdout.write(json.dumps(data, indent=2, default=str, ensure_ascii=False))
+    """Write JSON to stdout, one line per value that does not fit inline.
+
+    Padding and deep indentation cost a token on every line and tell the
+    reader nothing. A child row or a short list therefore stays on one line,
+    and only a value wider than the line limit opens up.
+    """
+    sys.stdout.write(_dumps(data, 0))
     sys.stdout.write("\n")
 
 

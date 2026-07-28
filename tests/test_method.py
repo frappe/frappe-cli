@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 import respx
@@ -88,7 +90,7 @@ def test_method_search_json_is_raw(env):
     )
     result = runner.invoke(app, ["--json", "method", "search", "--query=abc"])
     assert result.exit_code == 0
-    assert '"query": "abc"' in result.stdout
+    assert json.loads(result.stdout)["query"] == "abc"
     assert "frappe.ping" in result.stdout
 
 
@@ -530,4 +532,4 @@ def test_method_show_json_preserved_after_503_retry(env):
     )
     result = runner.invoke(app, ["--json", "method", "show", "frappe.ping"])
     assert result.exit_code == 0
-    assert '"path": "frappe.ping"' in result.stdout
+    assert json.loads(result.stdout)["path"] == "frappe.ping"
