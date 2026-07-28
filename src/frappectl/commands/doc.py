@@ -155,6 +155,7 @@ def _fetch(
 
 
 _CHILD_BOILERPLATE = {
+    "doctype",
     "owner",
     "creation",
     "modified",
