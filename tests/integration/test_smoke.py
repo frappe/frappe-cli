@@ -75,8 +75,8 @@ def test_whoami_authenticates():
 
 
 def test_doctype_list_includes_todo():
-    rows = run_json("doctype", "list")
-    assert DOCTYPE in {r["name"] for r in rows}
+    names = run_json("doctype", "list")
+    assert DOCTYPE in set(names)
 
 
 def test_doctype_show_exposes_fields():
