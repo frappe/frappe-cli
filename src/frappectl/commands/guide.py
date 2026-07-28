@@ -33,8 +33,8 @@ SITE ACCESS
 ORIENT YOURSELF (do this before you guess a field name or a DocType name)
   frappectl doctype list                           # all DocTypes on the site
   frappectl doctype list --module HR --custom      # a smaller list
-  frappectl doctype show "Sales Invoice"           # fields, types, required
-  frappectl doctype show "Sales Invoice" --raw     # the full meta, without processing
+  frappectl doctype show "Sales Invoice"           # Get fields, their types, permissions, basic metadata.
+  frappectl doctype show "Sales Invoice" --raw     # the full raw metadata. ONLY use this for scripting.
 
 DOCUMENTS (create, read, update, delete, and lifecycle)
   frappectl doc list "Sales Invoice" -f status=Overdue -f 'grand_total>1000' \
