@@ -111,16 +111,9 @@ def _codex_build(system_prompt: str, tool_dir: Path) -> Launch:
 
 def _claude_build(system_prompt: str, tool_dir: Path) -> Launch:
     # claude's chrome is largely fixed; --append-system-prompt is the one lever
-    # that matters. We also pass --system-prompt="" to drop claude's default
-    # system prompt, so the agent runs with only our Frappe prompt. Permissions
-    # are left at the default (interactive). No config dir needed.
-    return Launch(
-        argv=[
-            "claude",
-            "--append-system-prompt",
-            system_prompt,
-        ]
-    )
+    # that matters. Permissions are left at the default (interactive). No config
+    # dir needed.
+    return Launch(argv=["claude", "--append-system-prompt", system_prompt])
 
 
 # Order matters: it decides the auto-pick when no tool is named.

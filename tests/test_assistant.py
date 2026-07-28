@@ -80,7 +80,7 @@ def test_claude_gets_append_flag():
     argv = _argv(result)
     assert argv[0] == "claude"
     assert "--append-system-prompt" in argv
-    assert argv[argv.index("--system-prompt") + 1] == ""
+    assert "--system-prompt" not in argv
 
 
 def test_passthrough_after_ddash_is_appended():
