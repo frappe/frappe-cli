@@ -116,7 +116,7 @@ def get_ctx(ctx: typer.Context) -> ApplicationContext:
     return obj
 
 
-_JSON_WIDTH = 100
+_JSON_WIDTH = 160
 
 
 def _dumps(value: Any, level: int) -> str:
