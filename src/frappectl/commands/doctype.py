@@ -36,14 +36,14 @@ def list_doctypes(
     try:
         rows, _ = client.list_documents(
             "DocType",
-            fields=["name", "module", "issingle", "istable", "custom"],
+            fields=["name", "module"],
             filters=filters or None,
             order_by="name asc",
             limit=limit,
         )
     except FrappeError as e:
         raise fail(e.message)
-    emit_list(c, rows, ["name", "module", "issingle", "istable", "custom"])
+    emit_list(c, rows, ["name", "module"])
 
 
 def _summarize_field(df: Document) -> Document:
