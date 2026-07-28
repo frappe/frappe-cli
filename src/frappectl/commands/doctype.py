@@ -61,6 +61,10 @@ def _summarize_field(df: Document, in_list_view: bool = False) -> Document:
     return summary
 
 
+def _summarize_permission(perm: Document) -> Document:
+    return {k: v for k, v in perm.items() if v != 0}
+
+
 @app.command("show")
 def show_doctype(
     ctx: typer.Context,
@@ -111,7 +115,9 @@ def show_doctype(
             "fields": fields,
             "links": links,
             "child_tables": child_tables,
-            "permissions": meta.get("permissions", []),
+            "permissions": [
+                _summarize_permission(p) for p in meta.get("permissions", [])
+            ],
         }
         if is_virtual:
             payload["is_virtual"] = True
