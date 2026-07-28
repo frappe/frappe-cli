@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 import respx
@@ -45,7 +47,7 @@ def test_doc_get_json(env):
     )
     result = runner.invoke(app, ["--json", "doc", "get", "ToDo", "X"])
     assert result.exit_code == 0
-    assert '"name": "X"' in result.stdout
+    assert json.loads(result.stdout) == {"name": "X", "status": "Open"}
 
 
 @respx.mock
@@ -88,7 +90,7 @@ def test_delete_runs_without_confirmation(env):
     result = runner.invoke(app, ["--json", "doc", "delete", "ToDo", "X"])
     assert result.exit_code == 0
     assert route.called
-    assert '"deleted": "X"' in result.stdout
+    assert json.loads(result.stdout)["deleted"] == "X"
 
 
 @respx.mock
