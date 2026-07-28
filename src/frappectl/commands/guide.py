@@ -33,7 +33,7 @@ SITE ACCESS
 ORIENT YOURSELF (do this before you guess a field name or a DocType name)
   frappectl doctype list                           # all DocTypes on the site
   frappectl doctype list --module HR --custom      # a smaller list
-  frappectl doctype show "Sales Invoice"           # fields, types, links, required, child tables
+  frappectl doctype show "Sales Invoice"           # fields, types, links, required
   frappectl doctype show "Sales Invoice" --raw     # the full meta, without processing
 
 DOCUMENTS (create, read, update, delete, and lifecycle)

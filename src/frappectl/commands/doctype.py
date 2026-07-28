@@ -89,7 +89,7 @@ def show_doctype(
     name: str = typer.Argument(..., help="DocType name."),
     raw: bool = typer.Option(False, "--raw", help="Print the full unprocessed meta."),
 ) -> None:
-    """Show fields, types, link targets, child tables and permissions."""
+    """Show fields, types, link targets and permissions."""
     c = get_ctx(ctx)
     client = get_client(c)
     try:
@@ -113,12 +113,6 @@ def show_doctype(
         for f in all_fields
         if f.get("fieldtype") == "Link"
     ]
-    child_tables = [
-        {"fieldname": f.get("fieldname"), "child_doctype": f.get("options")}
-        for f in all_fields
-        if f.get("fieldtype") in {"Table", "Table MultiSelect"}
-    ]
-
     is_virtual = bool(meta.get("is_virtual"))
 
     if c.json:
@@ -132,7 +126,6 @@ def show_doctype(
             "autoname": meta.get("autoname"),
             "fields": fields,
             "links": links,
-            "child_tables": child_tables,
             "permissions": [
                 _summarize_permission(p) for p in meta.get("permissions", [])
             ],
@@ -158,8 +151,3 @@ def show_doctype(
         fields,
         ["fieldname", "label", "fieldtype", "options", "reqd", "in_list_view"],
     )
-    if child_tables:
-        from ..output import err_console
-
-        err_console.print("[bold]Child tables[/bold]")
-        emit_list(c, child_tables, ["fieldname", "child_doctype"])
