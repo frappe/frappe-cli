@@ -176,6 +176,8 @@ def _slim_document(doc: Document) -> Document:
     for key, value in doc.items():
         if key == "idx":
             continue
+        if key == "amended_from" and value is None:
+            continue
         if isinstance(value, list) and value and isinstance(value[0], dict):
             slim[key] = [
                 {k: v for k, v in row.items() if k not in _CHILD_BOILERPLATE}
