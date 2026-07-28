@@ -6,6 +6,7 @@ from typer.testing import CliRunner
 from frappectl.cli import _hoist_globals, app
 from frappectl.client import FrappeClient
 from frappectl.commands import auth
+from frappectl.commands import guide as guide_cmd
 from frappectl.errors import FrappeError
 
 BASE = "http://localhost"
@@ -164,6 +165,32 @@ def test_guide_tells_agents_not_to_touch_credentials():
     assert "Do not run auth commands" in result.stdout
     assert "modify FRAPPE_*" in result.stdout
     assert "auth login" not in result.stdout
+
+
+def test_guide_lists_configured_sites(monkeypatch):
+    monkeypatch.setattr(
+        guide_cmd.config,
+        "list_profiles",
+        lambda: (
+            {
+                "staging": {"site": "https://staging.example.com", "read_only": True},
+                "prod": {"site": "https://prod.example.com", "description": "live"},
+            },
+            "prod",
+        ),
+    )
+    result = runner.invoke(app, ["guide"])
+    assert result.exit_code == 0
+    assert "staging: https://staging.example.com [read-only]" in result.stdout
+    assert "prod: https://prod.example.com — live [default]" in result.stdout
+
+
+def test_guide_without_profiles_still_renders(monkeypatch):
+    monkeypatch.setattr(guide_cmd.config, "list_profiles", lambda: ({}, None))
+    result = runner.invoke(app, ["guide"])
+    assert result.exit_code == 0
+    assert "(none configured" in result.stdout
+    assert "<<SITES>>" not in result.stdout
 
 
 def test_login_refuses_non_interactive():
