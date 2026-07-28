@@ -154,6 +154,38 @@ def _fetch(
     return all_rows
 
 
+_CHILD_BOILERPLATE = {
+    "owner",
+    "creation",
+    "modified",
+    "modified_by",
+    "docstatus",
+    "parent",
+    "parentfield",
+    "parenttype",
+}
+
+
+def _slim_document(doc: Document) -> Document:
+    """Strip values a reader can derive from the parent or does not need.
+
+    Child rows repeat the parent's ownership, timestamps and docstatus on every
+    row, which dominates the output of a document with large tables.
+    """
+    slim: Document = {}
+    for key, value in doc.items():
+        if isinstance(value, list) and value and isinstance(value[0], dict):
+            slim[key] = [
+                {k: v for k, v in row.items() if k not in _CHILD_BOILERPLATE}
+                if isinstance(row, dict)
+                else row
+                for row in value
+            ]
+        else:
+            slim[key] = value
+    return slim
+
+
 @app.command("get")
 def get_doc(
     ctx: typer.Context,
@@ -167,7 +199,7 @@ def get_doc(
         doc = client.get_document(doctype, name)
     except FrappeError as e:
         raise fail(e.message)
-    emit_record(c, doc, title=f"{doctype} {name}")
+    emit_record(c, _slim_document(doc), title=f"{doctype} {name}")
 
 
 @app.command("create")
