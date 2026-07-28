@@ -62,7 +62,7 @@ def _summarize_field(df: Document, in_list_view: bool = False) -> Document:
 
 
 def _summarize_permission(perm: Document) -> Document:
-    return {k: v for k, v in perm.items() if v != 0}
+    return {k: v for k, v in perm.items() if v != 0 or k == "permlevel"}
 
 
 @app.command("show")
