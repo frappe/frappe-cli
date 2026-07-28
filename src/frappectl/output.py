@@ -141,8 +141,19 @@ def print_json(data: Any) -> None:
     Padding and deep indentation cost a token on every line and tell the
     reader nothing. A child row or a short list therefore stays on one line,
     and only a value wider than the line limit opens up.
+
+    The layout is assembled by hand, so the result is parsed once before it
+    goes out. A caller that pipes the output must never receive broken JSON.
+    A parse failure is a bug in the layout, so it goes to stderr, and the
+    standard encoder writes the value instead.
     """
-    sys.stdout.write(_dumps(data, 0))
+    text = _dumps(data, 0)
+    try:
+        json.loads(text)
+    except ValueError as e:
+        err_console.print(f"[dim]internal: compact JSON layout failed ({e})[/dim]")
+        text = json.dumps(data, default=str, ensure_ascii=False)
+    sys.stdout.write(text)
     sys.stdout.write("\n")
 
 
