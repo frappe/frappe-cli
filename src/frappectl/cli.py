@@ -21,7 +21,13 @@ from .output import Ctx, fail
 
 app = typer.Typer(
     name="frappectl",
-    help="frappectl — a command-line client for Frappe sites.",
+    help=(
+        "frappectl — a command-line client for Frappe sites.\n\n"
+        "AI agents: run `frappectl guide` first. It prints a full "
+        "usage primer: commands, filters, output formats and the configured site "
+        "profiles. It needs no network and no site. Use it instead of a read of "
+        "`--help` for each subcommand."
+    ),
     no_args_is_help=True,
     add_completion=True,
     rich_markup_mode="rich",

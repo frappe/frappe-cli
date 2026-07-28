@@ -117,8 +117,6 @@ def _claude_build(system_prompt: str, tool_dir: Path) -> Launch:
     return Launch(
         argv=[
             "claude",
-            "--system-prompt",
-            "",
             "--append-system-prompt",
             system_prompt,
         ]

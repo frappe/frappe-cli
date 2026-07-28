@@ -1,10 +1,10 @@
-"""``frappectl guide`` — a self-contained usage primer for agents.
+"""``frappectl guide`` — a usage primer for agents.
 
-Mostly static and dependency-free: it needs no network and no live site, so an
-agent can run ``frappectl guide`` as its very first step to learn the CLI
-surface before touching a site. The one dynamic part is the list of configured
-site profiles, read from local config, so the guide alone is enough for an agent
-to map "the staging ERP" onto a concrete ``-s <profile>``.
+The text is static and needs no network and no site. An agent can run
+``frappectl guide`` as the first step to learn the CLI before it touches a site.
+The list of configured site profiles is the one dynamic part, and it comes from
+the local config. The guide alone therefore lets an agent map "the staging ERP"
+onto a concrete ``-s <profile>``.
 """
 
 from __future__ import annotations
@@ -17,60 +17,63 @@ from .. import config
 # body contains literal braces (raw JSON examples).
 _SITES_MARKER = "<<SITES>>"
 
-GUIDE = r"""frappectl — an agent-friendly client for Frappe REST API v2.
+GUIDE = r"""frappectl - an agent client for the Frappe REST API v2.
 
-Use --json or pipe output for clean JSON; errors and --debug traces go to stderr.
+Use --json or pipe the output to get clean JSON. Errors and --debug traces go to
+stderr.
 
 SITE ACCESS
-  Access is preconfigured. Pass -s <profile> when a site is specified; with
-  multiple profiles, never guess. Do not run auth commands or modify FRAPPE_*
-  environment variables. If access fails, ask the human to configure it.
+  Access is already configured. Pass -s <profile> when the task names a site.
+  Do not run auth commands. Do not modify FRAPPE_* environment variables.
+  If access fails, ask the human to configure it.
 
   Configured profiles:
 <<SITES>>
 
-ORIENT YOURSELF (do this before guessing field or DocType names)
-  frappectl doctype list                          # all DocTypes on the site
-  frappectl doctype list --module HR --custom      # narrow it down
+ORIENT YOURSELF (do this before you guess a field name or a DocType name)
+  frappectl doctype list                           # all DocTypes on the site
+  frappectl doctype list --module HR --custom      # a smaller list
   frappectl doctype show "Sales Invoice"           # fields, types, links, required, child tables
-  frappectl doctype show "Sales Invoice" --raw     # full unprocessed meta
+  frappectl doctype show "Sales Invoice" --raw     # the full meta, without processing
 
-DOCUMENTS (CRUD + lifecycle)
+DOCUMENTS (create, read, update, delete, and lifecycle)
   frappectl doc list "Sales Invoice" -f status=Overdue -f 'grand_total>1000' \
     --fields name,customer,grand_total --order-by 'creation desc' --limit 50
-  frappectl doc list "Sales Invoice" --all --json          # auto-paginate everything
+  frappectl doc list "Sales Invoice" --all --json          # read all pages
   frappectl doc get "Sales Invoice" SINV-0001
   frappectl doc create ToDo --set description="Follow up" --set priority=High
-  cat invoice.json | frappectl doc create "Sales Invoice"  # JSON for child tables / nesting
-  frappectl doc update ToDo abc123 --set status=Closed     # optimistic; --force to overwrite
+  cat invoice.json | frappectl doc create "Sales Invoice"  # JSON for child tables and nested data
+  frappectl doc update ToDo abc123 --set status=Closed     # fails on a concurrent edit, use --force to overwrite
   frappectl doc delete ToDo abc123
   frappectl doc submit|cancel|amend "Sales Invoice" SINV-0001
 
-  Filters: repeat -f field=value (also >, <, >=, <=, like), or use
-  --filters-json '[["status","in",["Paid","Overdue"]]]'.
+  To filter, repeat -f field=value. The operators >, <, >=, <=, and like also
+  work. For other operators, use --filters-json
+  '[["status","in",["Paid","Overdue"]]]'.
 
 REPORTS AND READ-ONLY SQL
   frappectl report run "Accounts Receivable" -f company="Frappe" --json
-  frappectl query 'select count(*) as users from tabUser'  # requires System Manager/Administrator
+  frappectl query 'select count(*) as users from tabUser'  # needs the System Manager role or Administrator
 
 FILES
   frappectl file upload ./contract.pdf --doctype "Sales Invoice" --name SINV-0001 --private
-  frappectl file download <File name|/files/url> -o out.pdf   # '-o -' streams to stdout
+  frappectl file download <File name|/files/url> -o out.pdf   # '-o -' writes to stdout
 
 DISCOVER METHODS
-  Methods come in two kinds: rpc (a dotted path) and doctype (a controller method
-  run against an existing document). Listings show a `kind` and a unified `ref`.
-  frappectl method search --query="unread"           # search across both kinds
-  frappectl method list                              # global rpc + doctype index
-  frappectl method list --doctype "User"             # methods on one DocType (live)
-  frappectl method show frappe.tests.test_api.test   # rpc detail: params, endpoint
+  A method has one of two kinds. An rpc method is a dotted path. A doctype
+  method is a controller method that runs against an existing document. Each
+  listing shows the kind and a `ref` that works for both kinds.
+  frappectl method search --query="unread"           # search both kinds
+  frappectl method list                              # global rpc and doctype index
+  frappectl method list --doctype "User"             # methods on one DocType, read from the site
+  frappectl method show frappe.tests.test_api.test   # rpc detail: parameters and endpoint
   frappectl method show --doctype "User" add_comment # doctype method detail
-  frappectl method call gameplan.api.get_unread_count -F project=1   # rpc call
+  frappectl method call gameplan.api.get_unread_count -F project=1   # call an rpc method
   frappectl method call add_comment --doctype "User" --name Administrator -F comment_type=Comment
 
 RAW API
-  frappectl api method/frappe.client.get_count -F doctype=User    # -F typed, -f string
-  frappectl api method/frappe.client.get_list -F doctype=User -F 'filters:={"enabled":1}'  # :=  raw JSON
+  frappectl api method/frappe.client.get_count -F doctype=User    # -F sends a typed value, -f sends a string
+  frappectl api method/frappe.client.get_list -F doctype=User -F 'filters:={"enabled":1}'  # := sends raw JSON
   frappectl api method/gameplan.api.get_unread_count
   frappectl api document/ToDo --method GET
 """
@@ -83,7 +86,7 @@ def render_sites() -> str:
     except config.ConfigError:
         profiles, default = {}, None
     if not profiles:
-        return "    (none configured; ask the human to set up access)"
+        return "    (none configured. Ask the human to set up access.)"
     lines = []
     for name, info in profiles.items():
         parts = [f"    - {name}: {info.get('site', '')}"]
@@ -107,5 +110,5 @@ def render_guide() -> str:
 
 
 def guide() -> None:
-    """Print the agent guide to this CLI (no live site or network required)."""
+    """Print the agent guide to this CLI. It needs no site and no network."""
     typer.echo(render_guide())
