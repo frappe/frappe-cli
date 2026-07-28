@@ -51,8 +51,9 @@ def _summarize_field(df: Document, in_list_view: bool = False) -> Document:
         "fieldname": df.get("fieldname"),
         "label": df.get("label"),
         "fieldtype": df.get("fieldtype"),
-        "options": df.get("options"),
     }
+    if df.get("options"):
+        summary["options"] = df.get("options")
     if df.get("reqd"):
         summary["reqd"] = True
     if in_list_view:
