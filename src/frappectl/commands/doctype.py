@@ -61,8 +61,26 @@ def _summarize_field(df: Document, in_list_view: bool = False) -> Document:
     return summary
 
 
+_PERM_BOILERPLATE = {
+    "doctype",
+    "name",
+    "creation",
+    "modified",
+    "modified_by",
+    "owner",
+    "parent",
+    "parentfield",
+    "parenttype",
+    "idx",
+}
+
+
 def _summarize_permission(perm: Document) -> Document:
-    return {k: v for k, v in perm.items() if v != 0 or k == "permlevel"}
+    return {
+        k: v
+        for k, v in perm.items()
+        if k not in _PERM_BOILERPLATE and (v != 0 or k == "permlevel")
+    }
 
 
 @app.command("show")
