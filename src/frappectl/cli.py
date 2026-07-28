@@ -23,14 +23,14 @@ app = typer.Typer(
     name="frappectl",
     help=(
         "frappectl — a command-line client for Frappe sites.\n\n"
-        "AI agents: run `frappectl guide` first. It prints a full "
-        "usage primer: commands, filters, output formats and the configured site "
-        "profiles. It needs no network and no site. Use it instead of a read of "
-        "`--help` for each subcommand."
+        "AI agents: run `frappectl guide` first."
     ),
     no_args_is_help=True,
     add_completion=True,
-    rich_markup_mode="rich",
+    # Plain click help and usage errors. Boxes, colour and column padding cost
+    # a line of width and a token per row, and say nothing the text does not.
+    # Typer threads this mode down to every sub-app and command.
+    rich_markup_mode=None,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 
