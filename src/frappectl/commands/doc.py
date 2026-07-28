@@ -164,6 +164,7 @@ _CHILD_BOILERPLATE = {
     "parent",
     "parentfield",
     "parenttype",
+    "idx",
 }
 
 
