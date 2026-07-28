@@ -46,15 +46,17 @@ def list_doctypes(
     emit_list(c, rows, ["name", "module"])
 
 
-def _summarize_field(df: Document) -> Document:
-    return {
+def _summarize_field(df: Document, in_list_view: bool = False) -> Document:
+    summary: Document = {
         "fieldname": df.get("fieldname"),
         "label": df.get("label"),
         "fieldtype": df.get("fieldtype"),
         "options": df.get("options"),
         "reqd": bool(df.get("reqd")),
-        "in_list_view": bool(df.get("in_list_view")),
     }
+    if in_list_view:
+        summary["in_list_view"] = bool(df.get("in_list_view"))
+    return summary
 
 
 @app.command("show")
@@ -78,7 +80,9 @@ def show_doctype(
     all_fields = meta.get("fields", [])
     layout = {"Section Break", "Column Break", "Tab Break", "HTML", "Heading"}
     fields = [
-        _summarize_field(f) for f in all_fields if f.get("fieldtype") not in layout
+        _summarize_field(f, in_list_view=not c.json)
+        for f in all_fields
+        if f.get("fieldtype") not in layout
     ]
     links = [
         {"fieldname": f.get("fieldname"), "target": f.get("options")}
