@@ -11,9 +11,7 @@ from ..errors import FrappeError
 from ..output import emit_list, emit_record, fail, get_ctx, print_json
 from ..session import get_client
 
-app = typer.Typer(
-    no_args_is_help=True, help="Inspect DocTypes: fields, links, permissions."
-)
+app = typer.Typer(no_args_is_help=True, help="Inspect DocTypes: fields, permissions.")
 
 
 @app.command("list")
@@ -89,7 +87,7 @@ def show_doctype(
     name: str = typer.Argument(..., help="DocType name."),
     raw: bool = typer.Option(False, "--raw", help="Print the full unprocessed meta."),
 ) -> None:
-    """Show fields, types, link targets and permissions."""
+    """Show fields, types and permissions."""
     c = get_ctx(ctx)
     client = get_client(c)
     try:
@@ -108,11 +106,6 @@ def show_doctype(
         for f in all_fields
         if f.get("fieldtype") not in layout
     ]
-    links = [
-        {"fieldname": f.get("fieldname"), "target": f.get("options")}
-        for f in all_fields
-        if f.get("fieldtype") == "Link"
-    ]
     is_virtual = bool(meta.get("is_virtual"))
 
     if c.json:
@@ -125,7 +118,6 @@ def show_doctype(
             "title_field": meta.get("title_field"),
             "autoname": meta.get("autoname"),
             "fields": fields,
-            "links": links,
             "permissions": [
                 _summarize_permission(p) for p in meta.get("permissions", [])
             ],
