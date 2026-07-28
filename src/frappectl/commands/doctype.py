@@ -95,36 +95,38 @@ def show_doctype(
         if f.get("fieldtype") in {"Table", "Table MultiSelect"}
     ]
 
-    if c.json:
-        print_json(
-            {
-                "name": meta.get("name"),
-                "module": meta.get("module"),
-                "issingle": meta.get("issingle"),
-                "istable": meta.get("istable"),
-                "is_submittable": meta.get("is_submittable"),
-                "title_field": meta.get("title_field"),
-                "autoname": meta.get("autoname"),
-                "fields": fields,
-                "links": links,
-                "child_tables": child_tables,
-                "permissions": meta.get("permissions", []),
-            }
-        )
-        return
+    is_virtual = bool(meta.get("is_virtual"))
 
-    emit_record(
-        c,
-        {
+    if c.json:
+        payload = {
             "name": meta.get("name"),
             "module": meta.get("module"),
-            "is_submittable": bool(meta.get("is_submittable")),
-            "issingle": bool(meta.get("issingle")),
+            "issingle": meta.get("issingle"),
+            "istable": meta.get("istable"),
+            "is_submittable": meta.get("is_submittable"),
             "title_field": meta.get("title_field"),
             "autoname": meta.get("autoname"),
-        },
-        title=f"DocType {name}",
-    )
+            "fields": fields,
+            "links": links,
+            "child_tables": child_tables,
+            "permissions": meta.get("permissions", []),
+        }
+        if is_virtual:
+            payload["is_virtual"] = True
+        print_json(payload)
+        return
+
+    record: Document = {
+        "name": meta.get("name"),
+        "module": meta.get("module"),
+        "is_submittable": bool(meta.get("is_submittable")),
+        "issingle": bool(meta.get("issingle")),
+        "title_field": meta.get("title_field"),
+        "autoname": meta.get("autoname"),
+    }
+    if is_virtual:
+        record["is_virtual"] = True
+    emit_record(c, record, title=f"DocType {name}")
     emit_list(
         c,
         fields,
