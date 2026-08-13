@@ -13,7 +13,7 @@ runner = CliRunner()
 def _isolate(monkeypatch, tmp_path):
     """Installed binaries, an isolated frappe config dir, and a deterministic
     site block, so tests never depend on the developer's real setup."""
-    installed = {"pi", "claude", "codex", "frappectl"}
+    installed = {"pi", "claude", "codex", "flow", "frappectl"}
     monkeypatch.setattr(
         assistant.shutil, "which", lambda name: name if name in installed else None
     )
@@ -81,6 +81,14 @@ def test_claude_gets_append_flag():
     assert argv[0] == "claude"
     assert "--append-system-prompt" in argv
     assert "--system-prompt" not in argv
+
+
+def test_flow_starts_web_with_append_flag():
+    result = runner.invoke(app, ["assistant", "flow", "--dry-run"])
+    argv = _argv(result)
+    assert argv[:2] == ["flow", "web"]
+    assert "--append-system-prompt" in argv
+    assert "frappectl" in argv[argv.index("--append-system-prompt") + 1]
 
 
 def test_passthrough_after_ddash_is_appended():

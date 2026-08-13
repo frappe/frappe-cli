@@ -13,8 +13,8 @@ the terminal. That lets us:
   * codex  — supply a global AGENTS.md (codex has no --append-system-prompt),
              while symlinking auth.json/config.toml so login/config still work.
 
-pi and claude both take --append-system-prompt, so they launch with flags only
-and use their own real config dir (auth included) untouched.
+pi, claude and flow all take --append-system-prompt, so they launch with flags
+only and use their own real config dir (auth included) untouched.
 """
 
 from __future__ import annotations
@@ -116,11 +116,20 @@ def _claude_build(system_prompt: str, tool_dir: Path) -> Launch:
     return Launch(argv=["claude", "--append-system-prompt", system_prompt])
 
 
+def _flow_build(system_prompt: str, tool_dir: Path) -> Launch:
+    # flow is a client/server harness: `flow web` runs the daemon, serves the
+    # web UI and opens a browser tab. The prompt goes to every session the UI
+    # creates. Its own config dir holds the provider credentials, so we leave
+    # it alone.
+    return Launch(argv=["flow", "web", "--append-system-prompt", system_prompt])
+
+
 # Order matters: it decides the auto-pick when no tool is named.
 TOOLS: list[Tool] = [
     Tool(name="pi", binary="pi", build=_pi_build),
     Tool(name="claude", binary="claude", build=_claude_build),
     Tool(name="codex", binary="codex", build=_codex_build),
+    Tool(name="flow", binary="flow", build=_flow_build),
 ]
 _TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 
@@ -169,8 +178,8 @@ def assistant(
     ctx: typer.Context,
     tool: Optional[str] = typer.Argument(
         None,
-        help="Agent tool to launch: pi, claude or codex. Defaults to the first "
-        "one installed.",
+        help="Agent tool to launch: pi, claude, codex or flow. Defaults to the "
+        "first one installed.",
     ),
     dry_run: bool = typer.Option(
         False,
@@ -181,8 +190,9 @@ def assistant(
 ) -> None:
     """Launch a CLI coding agent wired up as a Frappe assistant.
 
-    Starts a supported agent tool (pi, claude or codex) with a Frappe system
-    prompt, so it drives `frappectl` against your authenticated sites. Anything
+    Starts a supported agent tool (pi, claude, codex or flow) with a Frappe
+    system prompt, so it drives `frappectl` against your authenticated sites.
+    `flow` opens its web UI in a browser; the others own the terminal. Anything
     after `--` is passed straight through to the tool, e.g.:
 
     frappectl assistant pi -- "list overdue invoices on staging"
